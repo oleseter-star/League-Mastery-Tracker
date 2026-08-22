@@ -1,0 +1,177 @@
+{% extends "base.html" %}
+
+{% block title %}
+    Persons · League Mastery Tracker
+{% endblock %}
+
+{% block content %}
+    <header class="page-header">
+        <div class="page-header__content">
+            <p class="page-header__eyebrow">
+                Management
+            </p>
+
+            <h1>
+                Persons
+            </h1>
+
+            <p class="page-header__description">
+                Create local persons and open them to manage
+                connected Riot accounts and Champion Mastery.
+            </p>
+        </div>
+    </header>
+
+    <div class="section-stack">
+        <section
+            class="card"
+            aria-labelledby="add-person-heading"
+        >
+            <div class="card__header">
+                <div>
+                    <h2 id="add-person-heading">
+                        Add person
+                    </h2>
+
+                    <p class="card__description">
+                        A person groups one or more Riot accounts
+                        under a local display name.
+                    </p>
+                </div>
+            </div>
+
+            {% if error_message %}
+                <p
+                    class="notice notice-error"
+                    role="alert"
+                >
+                    {{ error_message }}
+                </p>
+            {% endif %}
+
+            <form
+                class="form-stack"
+                method="post"
+                action="{{ url_for('persons.create_person') }}"
+            >
+                <input
+                    type="hidden"
+                    name="_csrf_token"
+                    value="{{ csrf_token() }}"
+                >
+
+                <div class="form-field">
+                    <label for="display_name">
+                        Display name
+                    </label>
+
+                    <input
+                        id="display_name"
+                        name="display_name"
+                        type="text"
+                        maxlength="120"
+                        autocomplete="off"
+                        required
+                        autofocus
+                        aria-describedby="display-name-help"
+                    >
+
+                    <p
+                        id="display-name-help"
+                        class="form-help"
+                    >
+                        This name is stored locally and is used to
+                        identify the person inside the application.
+                    </p>
+                </div>
+
+                <div class="actions">
+                    <button type="submit">
+                        Add person
+                    </button>
+                </div>
+            </form>
+        </section>
+
+        <section
+            class="card"
+            aria-labelledby="registered-persons-heading"
+        >
+            <div class="card__header">
+                <div>
+                    <h2 id="registered-persons-heading">
+                        Registered persons
+                    </h2>
+
+                    <p class="card__description">
+                        Open a person to review their Riot accounts
+                        and Champion Mastery.
+                    </p>
+                </div>
+
+                {% if persons %}
+                    <span
+                        class="badge badge--info"
+                        aria-label="{{ persons | length }} registered persons"
+                    >
+                        {{ persons | length }}
+                    </span>
+                {% endif %}
+            </div>
+
+            {% if persons %}
+                <div class="table-scroll">
+                    <table>
+                        <caption class="sr-only">
+                            Registered persons and connected Riot account counts
+                        </caption>
+
+                        <thead>
+                            <tr>
+                                <th scope="col">
+                                    Name
+                                </th>
+
+                                <th scope="col">
+                                    Riot accounts
+                                </th>
+                            </tr>
+                        </thead>
+
+                        <tbody>
+                            {% for person in persons %}
+                                <tr>
+                                    <td>
+                                        <a
+                                            href="{{ url_for(
+                                                'persons.get_person',
+                                                person_id=person.id
+                                            ) }}"
+                                        >
+                                            {{ person.display_name }}
+                                        </a>
+                                    </td>
+
+                                    <td>
+                                        {{ person.riot_accounts | length }}
+                                    </td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            {% else %}
+                <div class="empty-state">
+                    <h3>
+                        No persons yet
+                    </h3>
+
+                    <p>
+                        No persons have been created yet.
+                        Use the form above to create the first person.
+                    </p>
+                </div>
+            {% endif %}
+        </section>
+    </div>
+{% endblock %}

@@ -1,0 +1,202 @@
+{% extends "base.html" %}
+
+{% block title %}
+    Missing champion data | League Mastery Tracker
+{% endblock %}
+
+{% block content %}
+    <header class="page-header">
+        <div class="page-header__content">
+            <p class="page-header__eyebrow">
+                Reference data
+            </p>
+
+            <h1>
+                Missing champion data
+            </h1>
+
+            <p class="page-header__description">
+                Add names for champions that are not yet included
+                in the local Data Dragon reference data.
+            </p>
+        </div>
+
+        <div class="page-header__actions">
+            <a
+                class="button button-secondary"
+                href="/"
+            >
+                Back to Dashboard
+            </a>
+        </div>
+    </header>
+
+    <div class="section-stack">
+        <section
+            class="card"
+            aria-labelledby="missing-metadata-heading"
+        >
+            <div class="card__header">
+                <div>
+                    <h2 id="missing-metadata-heading">
+                        Missing metadata
+                    </h2>
+
+                    <p class="card__description">
+                        Manually assign a display name while preserving
+                        the Riot champion ID as the champion's stable
+                        reference identity.
+                    </p>
+                </div>
+
+                {% if champions %}
+                    <span
+                        class="badge badge--warning"
+                        aria-label="{{ champions | length }} champions missing reference names"
+                    >
+                        {{ champions | length }}
+                    </span>
+                {% else %}
+                    <span class="badge badge--success">
+                        Complete
+                    </span>
+                {% endif %}
+            </div>
+
+            {% if champions %}
+                <div
+                    class="notice notice-warning"
+                    role="status"
+                >
+                    These champions exist in local application data,
+                    but do not currently have a reference name.
+                    Champion Mastery remains available while metadata
+                    is incomplete.
+                </div>
+
+                <div class="table-scroll">
+                    <table>
+                        <caption class="sr-only">
+                            Champions missing reference names
+                        </caption>
+
+                        <thead>
+                            <tr>
+                                <th scope="col">
+                                    Icon
+                                </th>
+
+                                <th scope="col">
+                                    Riot champion ID
+                                </th>
+
+                                <th scope="col">
+                                    Champion name
+                                </th>
+
+                                <th scope="col">
+                                    Action
+                                </th>
+                            </tr>
+                        </thead>
+
+                        <tbody>
+                            {% for champion in champions %}
+                                <tr>
+                                    <td>
+                                        <span
+                                            class="champion-placeholder"
+                                            role="img"
+                                            aria-label="Champion image unavailable"
+                                            title="Champion image unavailable"
+                                        >
+                                            ?
+                                        </span>
+                                    </td>
+
+                                    <td>
+                                        <code>
+                                            {{ champion.riot_champion_id }}
+                                        </code>
+                                    </td>
+
+                                    <td>
+                                        <form
+                                            id="champion-name-{{ champion.id }}"
+                                            method="post"
+                                            action="{{ url_for(
+                                                'champions.update_champion_name',
+                                                champion_id=champion.id
+                                            ) }}"
+                                        >
+                                            <input
+                                                type="hidden"
+                                                name="_csrf_token"
+                                                value="{{ csrf_token() }}"
+                                            >
+
+                                            <label
+                                                class="sr-only"
+                                                for="name-{{ champion.id }}"
+                                            >
+                                                Champion name
+                                            </label>
+
+                                            <input
+                                                id="name-{{ champion.id }}"
+                                                name="name"
+                                                type="text"
+                                                maxlength="100"
+                                                autocomplete="off"
+                                                required
+                                                aria-describedby="champion-name-help-{{ champion.id }}"
+                                            >
+
+                                            <span
+                                                id="champion-name-help-{{ champion.id }}"
+                                                class="sr-only"
+                                            >
+                                                Enter a manual reference name
+                                                for Riot champion
+                                                {{ champion.riot_champion_id }}.
+                                            </span>
+                                        </form>
+                                    </td>
+
+                                    <td>
+                                        <button
+                                            type="submit"
+                                            form="champion-name-{{ champion.id }}"
+                                        >
+                                            Save name
+                                        </button>
+                                    </td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            {% else %}
+                <div class="empty-state">
+                    <h3>
+                        All champions have reference names.
+                    </h3>
+
+                    <p>
+                        No manual metadata work is required.
+                        Champion reference names are available for
+                        all champions currently stored in the
+                        database.
+                    </p>
+
+                    <a
+                        class="button button-secondary"
+                        href="/"
+                    >
+                        Back to Dashboard
+                    </a>
+                </div>
+            {% endif %}
+        </section>
+    </div>
+{% endblock %}

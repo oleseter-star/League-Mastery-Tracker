@@ -1,0 +1,677 @@
+{% extends "base.html" %}
+
+{% block title %}
+    {{ person.display_name }} | League Mastery Tracker
+{% endblock %}
+
+{% block content %}
+    <header class="page-header">
+        <div class="page-header__content">
+            <p class="page-header__eyebrow">
+                Person
+            </p>
+
+            <h1>
+                {{ person.display_name }}
+            </h1>
+
+            <p class="page-header__description">
+                Review connected Riot accounts and combined
+                Champion Mastery for this person.
+            </p>
+        </div>
+
+        <div class="page-header__actions">
+            <a
+                class="button button-secondary"
+                href="/persons"
+            >
+                All persons
+            </a>
+        </div>
+    </header>
+
+    <div class="section-stack">
+        <section
+            class="card card--raised"
+            aria-labelledby="mastery-summary-heading"
+        >
+            <div class="card__header">
+                <div>
+                    <h2 id="mastery-summary-heading">
+                        Mastery summary
+                    </h2>
+
+                    <p class="card__description">
+                        Combined Champion Mastery across this
+                        person's connected Riot accounts.
+                    </p>
+                </div>
+            </div>
+
+            <div class="count-grid">
+                <div class="count-card">
+                    <span class="count-value">
+                        {{
+                            "{:,}".format(
+                                total_mastery
+                            ).replace(",", " ")
+                        }}
+                    </span>
+
+                    <span class="count-label">
+                        Total mastery points
+                    </span>
+                </div>
+
+                <div class="count-card">
+                    <span class="count-value">
+                        {{ riot_accounts | length }}
+                    </span>
+
+                    <span class="count-label">
+                        Riot accounts
+                    </span>
+                </div>
+            </div>
+        </section>
+
+        <section
+            class="card"
+            aria-labelledby="top-champions-heading"
+        >
+            <div class="card__header">
+                <div>
+                    <h2 id="top-champions-heading">
+                        Top 10 champions
+                    </h2>
+
+                    <p class="card__description">
+                        Champions with the highest combined mastery
+                        points across all connected Riot accounts.
+                    </p>
+                </div>
+            </div>
+
+            {% if top_champions %}
+                <div class="table-scroll">
+                    <table>
+                        <caption class="sr-only">
+                            Top champions by combined mastery points
+                        </caption>
+
+                        <thead>
+                            <tr>
+                                <th scope="col">
+                                    Rank
+                                </th>
+
+                                <th scope="col">
+                                    Champion
+                                </th>
+
+                                <th scope="col">
+                                    Total mastery
+                                </th>
+                            </tr>
+                        </thead>
+
+                        <tbody>
+                            {% for champion in top_champions %}
+                                <tr>
+                                    <td>
+                                        {{ loop.index }}
+                                    </td>
+
+                                    <td>
+                                        <div class="champion">
+                                            {% if champion.image %}
+                                                <img
+                                                    class="champion-image"
+                                                    src="{{ champion.image }}"
+                                                    alt="{{ champion.champion_name }}"
+                                                    width="44"
+                                                    height="44"
+                                                >
+                                            {% else %}
+                                                <span
+                                                    class="champion-placeholder"
+                                                    role="img"
+                                                    aria-label="{{ champion.champion_name }} image unavailable"
+                                                    title="Champion image unavailable"
+                                                >
+                                                    ?
+                                                </span>
+                                            {% endif %}
+
+                                            <span class="champion-name">
+                                                {{ champion.champion_name }}
+                                            </span>
+                                        </div>
+                                    </td>
+
+                                    <td class="mastery-points">
+                                        {{
+                                            "{:,}".format(
+                                                champion.total_mastery
+                                            ).replace(",", " ")
+                                        }}
+                                    </td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            {% else %}
+                <div class="empty-state">
+                    <h3>
+                        No mastery data yet
+                    </h3>
+
+                    <p>
+                        This person does not have any stored
+                        Champion Mastery yet. Synchronize a connected
+                        Riot account from the Dashboard to populate
+                        this overview.
+                    </p>
+
+                    <a
+                        class="button button-secondary"
+                        href="/"
+                    >
+                        Go to Dashboard
+                    </a>
+                </div>
+            {% endif %}
+        </section>
+
+        <section
+            class="card"
+            aria-labelledby="champion-mastery-heading"
+        >
+            <div class="card__header">
+                <div>
+                    <h2 id="champion-mastery-heading">
+                        Champion Mastery
+                    </h2>
+
+                    <p class="card__description">
+                        Compare each champion's total mastery points
+                        with the contribution from each Riot account.
+                    </p>
+                </div>
+            </div>
+
+            {% if champions %}
+                <div class="table-scroll">
+                    <table>
+                        <caption class="sr-only">
+                            Champion Mastery by Riot account
+                        </caption>
+
+                        <thead>
+                            <tr>
+                                <th scope="col">
+                                    Champion
+                                </th>
+
+                                <th scope="col">
+                                    Total
+                                </th>
+
+                                {% for riot_account in riot_accounts %}
+                                    <th scope="col">
+                                        {{ riot_account.riot_id }}
+                                    </th>
+                                {% endfor %}
+                            </tr>
+                        </thead>
+
+                        <tbody>
+                            {% for champion in champions %}
+                                <tr>
+                                    <td>
+                                        <div class="champion">
+                                            {% if champion.image %}
+                                                <img
+                                                    class="champion-image"
+                                                    src="{{ champion.image }}"
+                                                    alt="{{ champion.champion_name }}"
+                                                    width="44"
+                                                    height="44"
+                                                >
+                                            {% else %}
+                                                <span
+                                                    class="champion-placeholder"
+                                                    role="img"
+                                                    aria-label="{{ champion.champion_name }} image unavailable"
+                                                    title="Champion image unavailable"
+                                                >
+                                                    ?
+                                                </span>
+                                            {% endif %}
+
+                                            <span class="champion-name">
+                                                {{ champion.champion_name }}
+                                            </span>
+                                        </div>
+                                    </td>
+
+                                    <td class="mastery-points">
+                                        <strong>
+                                            {{
+                                                "{:,}".format(
+                                                    champion.total_mastery
+                                                ).replace(",", " ")
+                                            }}
+                                        </strong>
+                                    </td>
+
+                                    {% for riot_account in riot_accounts %}
+                                        <td class="mastery-points">
+                                            {{
+                                                "{:,}".format(
+                                                    champion.points_by_account[
+                                                        riot_account.id
+                                                    ]
+                                                ).replace(",", " ")
+                                            }}
+                                        </td>
+                                    {% endfor %}
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            {% else %}
+                <div class="empty-state">
+                    <h3>
+                        No Champion Mastery yet
+                    </h3>
+
+                    <p>
+                        No Champion Mastery is stored for this
+                        person yet. Existing data will appear here
+                        after a Riot account has been synchronized.
+                    </p>
+                </div>
+            {% endif %}
+        </section>
+
+        <section
+            class="card"
+            aria-labelledby="riot-accounts-heading"
+        >
+            <div class="card__header">
+                <div>
+                    <h2 id="riot-accounts-heading">
+                        Riot accounts
+                    </h2>
+
+                    <p class="card__description">
+                        Accounts currently associated with
+                        {{ person.display_name }}.
+                    </p>
+                </div>
+
+                {% if riot_accounts %}
+                    <span
+                        class="badge badge--info"
+                        aria-label="{{ riot_accounts | length }} Riot accounts"
+                    >
+                        {{ riot_accounts | length }}
+                    </span>
+                {% endif %}
+            </div>
+
+            {% if riot_accounts %}
+                <div class="table-scroll">
+                    <table>
+                        <caption class="sr-only">
+                            Connected Riot accounts
+                        </caption>
+
+                        <thead>
+                            <tr>
+                                <th scope="col">
+                                    Riot ID
+                                </th>
+
+                                <th scope="col">
+                                    Platform
+                                </th>
+
+                                <th scope="col">
+                                    Last synchronized
+                                </th>
+
+                                <th scope="col">
+                                    Move account
+                                </th>
+                            </tr>
+                        </thead>
+
+                        <tbody>
+                            {% for riot_account in riot_accounts %}
+                                <tr>
+                                    <td>
+                                        <strong>
+                                            {{ riot_account.riot_id }}
+                                        </strong>
+                                    </td>
+
+                                    <td>
+                                        {{ riot_account.platform_region }}
+                                    </td>
+
+                                    <td>
+                                        {% if riot_account.last_sync %}
+                                            {{
+                                                riot_account.last_sync.strftime(
+                                                    "%Y-%m-%d %H:%M"
+                                                )
+                                            }}
+                                        {% else %}
+                                            <span class="muted">
+                                                Never
+                                            </span>
+                                        {% endif %}
+                                    </td>
+
+                                    <td>
+                                        {% if move_target_persons %}
+                                            <form
+                                                class="form-stack"
+                                                method="post"
+                                                action="{{ url_for(
+                                                    'persons.move_riot_account',
+                                                    person_id=person.id,
+                                                    riot_account_id=riot_account.id
+                                                ) }}"
+                                                onsubmit='
+                                                    return confirm(
+                                                        {{
+                                                            (
+                                                                "Are you sure you "
+                                                                "want to move "
+                                                                ~ riot_account.riot_id
+                                                                ~ " to the selected "
+                                                                "person?"
+                                                            ) | tojson
+                                                        }}
+                                                    );
+                                                '
+                                            >
+                                                <input
+                                                    type="hidden"
+                                                    name="_csrf_token"
+                                                    value="{{ csrf_token() }}"
+                                                >
+
+                                                <div class="form-field">
+                                                    <label
+                                                        for="target_person_id_{{ riot_account.id }}"
+                                                    >
+                                                        New person
+                                                    </label>
+
+                                                    <select
+                                                        id="target_person_id_{{ riot_account.id }}"
+                                                        name="target_person_id"
+                                                        required
+                                                    >
+                                                        {% for target_person in move_target_persons %}
+                                                            <option
+                                                                value="{{ target_person.id }}"
+                                                            >
+                                                                {{ target_person.display_name }}
+                                                            </option>
+                                                        {% endfor %}
+                                                    </select>
+                                                </div>
+
+                                                <button
+                                                    class="button-secondary"
+                                                    type="submit"
+                                                >
+                                                    Move account
+                                                </button>
+                                            </form>
+                                        {% else %}
+                                            <p class="muted">
+                                                Create at least one other
+                                                person before moving the
+                                                Riot account.
+                                            </p>
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            {% else %}
+                <div class="empty-state">
+                    <h3>
+                        No Riot accounts
+                    </h3>
+
+                    <p>
+                        This person has no associated Riot accounts.
+                        Use the form below to connect one.
+                    </p>
+                </div>
+            {% endif %}
+        </section>
+
+        <div class="grid grid--2">
+            <section
+                class="card"
+                aria-labelledby="add-account-heading"
+            >
+                <div class="card__header">
+                    <div>
+                        <h2 id="add-account-heading">
+                            Add Riot account
+                        </h2>
+
+                        <p class="card__description">
+                            The account's PUUID is retrieved
+                            automatically from Riot. Champion Mastery
+                            is synchronized separately from the
+                            Dashboard.
+                        </p>
+                    </div>
+                </div>
+
+                <form
+                    class="form-stack"
+                    method="post"
+                    action="{{ url_for(
+                        'persons.add_riot_account',
+                        person_id=person.id
+                    ) }}"
+                >
+                    <input
+                        type="hidden"
+                        name="_csrf_token"
+                        value="{{ csrf_token() }}"
+                    >
+
+                    <div class="form-field">
+                        <label for="game_name">
+                            Game Name
+                        </label>
+
+                        <input
+                            id="game_name"
+                            name="game_name"
+                            type="text"
+                            maxlength="100"
+                            autocomplete="off"
+                            required
+                        >
+                    </div>
+
+                    <div class="form-field">
+                        <label for="tag_line">
+                            Tag
+                        </label>
+
+                        <input
+                            id="tag_line"
+                            name="tag_line"
+                            type="text"
+                            maxlength="20"
+                            placeholder="Without #"
+                            autocomplete="off"
+                            required
+                        >
+                    </div>
+
+                    <div class="form-field">
+                        <label for="platform_region">
+                            Platform
+                        </label>
+
+                        <select
+                            id="platform_region"
+                            name="platform_region"
+                            required
+                        >
+                            {% for platform_region in platform_regions %}
+                                <option
+                                    value="{{ platform_region }}"
+                                    {% if platform_region == "EUW1" %}
+                                        selected
+                                    {% endif %}
+                                >
+                                    {{ platform_region }}
+                                </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    <div class="actions">
+                        <button type="submit">
+                            Add Riot account
+                        </button>
+                    </div>
+                </form>
+            </section>
+
+            <section
+                class="card"
+                aria-labelledby="edit-person-heading"
+            >
+                <div class="card__header">
+                    <div>
+                        <h2 id="edit-person-heading">
+                            Edit person
+                        </h2>
+
+                        <p class="card__description">
+                            Change the local display name used for
+                            this person.
+                        </p>
+                    </div>
+                </div>
+
+                <form
+                    class="form-stack"
+                    method="post"
+                    action="{{ url_for(
+                        'persons.update_person',
+                        person_id=person.id
+                    ) }}"
+                >
+                    <input
+                        type="hidden"
+                        name="_csrf_token"
+                        value="{{ csrf_token() }}"
+                    >
+
+                    <div class="form-field">
+                        <label for="display_name">
+                            Display name
+                        </label>
+
+                        <input
+                            id="display_name"
+                            name="display_name"
+                            type="text"
+                            value="{{ person.display_name }}"
+                            maxlength="120"
+                            autocomplete="off"
+                            required
+                        >
+                    </div>
+
+                    <div class="actions">
+                        <button type="submit">
+                            Save name
+                        </button>
+                    </div>
+                </form>
+            </section>
+        </div>
+
+        <section
+            class="card"
+            aria-labelledby="delete-person-heading"
+        >
+            <div class="card__header">
+                <div>
+                    <h2 id="delete-person-heading">
+                        Delete person
+                    </h2>
+
+                    <p
+                        id="delete-person-description"
+                        class="card__description"
+                    >
+                        Permanently delete this person, all connected
+                        Riot accounts, and all stored Champion Mastery
+                        data. This action cannot be undone.
+                    </p>
+                </div>
+            </div>
+
+            <form
+                method="post"
+                action="{{ url_for(
+                    'persons.delete_person',
+                    person_id=person.id
+                ) }}"
+                onsubmit='
+                    return confirm(
+                        {{
+                            (
+                                "Are you sure you want to delete this "
+                                ~ "person and all connected Riot accounts "
+                                ~ "and Champion Mastery data? "
+                                ~ "This cannot be undone."
+                            ) | tojson
+                        }}
+                    );
+                '
+            >
+                <input
+                    type="hidden"
+                    name="_csrf_token"
+                    value="{{ csrf_token() }}"
+                >
+
+                <div class="actions">
+                    <button
+                        class="button-danger"
+                        type="submit"
+                        aria-describedby="delete-person-description"
+                    >
+                        Delete person
+                    </button>
+                </div>
+            </form>
+        </section>
+    </div>
+{% endblock %}

@@ -1,0 +1,46 @@
+<svg
+    xmlns="http://www.w3.org/2000/svg"
+    viewBox="0 0 64 64"
+    role="img"
+    aria-labelledby="title"
+>
+    <title id="title">League Mastery Tracker</title>
+
+    <rect
+        x="2"
+        y="2"
+        width="60"
+        height="60"
+        rx="12"
+        fill="#111827"
+        stroke="#d6b25e"
+        stroke-width="4"
+    />
+
+    <path
+        d="M11 19V44H22"
+        fill="none"
+        stroke="#f7e7b2"
+        stroke-width="4"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+    />
+
+    <path
+        d="M27 44V19L34 32L41 19V44"
+        fill="none"
+        stroke="#d6b25e"
+        stroke-width="4"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+    />
+
+    <path
+        d="M45 19H57M51 19V44"
+        fill="none"
+        stroke="#f7e7b2"
+        stroke-width="4"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+    />
+</svg>

@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1"
+    >
+
+    <title>
+        {{ page_title }} – League Mastery Tracker
+    </title>
+
+    <link
+        rel="stylesheet"
+        href="{{ url_for('static', filename='app.css') }}"
+    >
+</head>
+
+<body>
+    <main class="shutdown-shell">
+        <section class="shutdown-card">
+            <h1>{{ heading }}</h1>
+
+            <p>{{ message }}</p>
+
+            <div
+                id="close-fallback"
+                hidden
+            >
+                <p>
+                    The application has shut down. The browser did not
+                    allow this tab to close automatically.
+                </p>
+
+                <button
+                    id="close-tab-button"
+                    type="button"
+                >
+                    Close tab
+                </button>
+
+                <p>
+                    If the tab remains open, you can close it manually.
+                </p>
+            </div>
+        </section>
+    </main>
+
+    <script>
+        (() => {
+            "use strict";
+
+            const fallbackElement = (
+                document.getElementById(
+                    "close-fallback"
+                )
+            );
+
+            const closeButton = (
+                document.getElementById(
+                    "close-tab-button"
+                )
+            );
+
+            function attemptToCloseTab() {
+                window.close();
+            }
+
+            function showFallback() {
+                if (
+                    fallbackElement
+                    && !window.closed
+                ) {
+                    fallbackElement.hidden = false;
+                }
+            }
+
+            if (closeButton) {
+                closeButton.addEventListener(
+                    "click",
+                    () => {
+                        attemptToCloseTab();
+
+                        window.setTimeout(
+                            showFallback,
+                            300
+                        );
+                    }
+                );
+            }
+
+            window.addEventListener(
+                "load",
+                () => {
+                    window.setTimeout(
+                        attemptToCloseTab,
+                        350
+                    );
+
+                    window.setTimeout(
+                        showFallback,
+                        1200
+                    );
+                }
+            );
+        })();
+    </script>
+</body>
+</html>

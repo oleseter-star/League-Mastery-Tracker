@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1"
+    >
+
+    <title>
+        {% block title %}
+            {{ config["PRODUCT_NAME"] }}
+        {% endblock %}
+    </title>
+
+    <link
+        rel="icon"
+        type="image/svg+xml"
+        sizes="any"
+        href="{{ url_for('static', filename='favicon.svg') }}"
+    >
+
+    <link
+        rel="stylesheet"
+        href="{{ url_for('static', filename='app.css') }}"
+    >
+
+    {% block head %}{% endblock %}
+</head>
+
+<body>
+    <a
+        class="skip-link"
+        href="#main-content"
+    >
+        Skip to main content
+    </a>
+
+    <header class="site-header">
+        <div class="site-header__inner">
+            <a
+                class="site-brand"
+                href="/"
+                aria-label="{{ config["PRODUCT_NAME"] }} dashboard"
+            >
+                <span
+                    class="site-brand__mark"
+                    aria-hidden="true"
+                >
+                    LMT
+                </span>
+
+                <span>
+                    {{ config["RELEASE_NAME"] }}
+                </span>
+            </a>
+
+            <nav
+                class="main-nav"
+                aria-label="Main navigation"
+            >
+                <a href="/">
+                    Dashboard
+                </a>
+
+                <a href="/persons">
+                    Persons
+                </a>
+
+                <a href="/settings">
+                    Settings
+                </a>
+            </nav>
+        </div>
+    </header>
+
+    <main
+        id="main-content"
+        class="{% block main_class %}page-shell{% endblock %}"
+    >
+        {% with messages = get_flashed_messages(
+            with_categories=true
+        ) %}
+            {% if messages %}
+                <section
+                    class="flash-region"
+                    aria-label="Messages"
+                >
+                    {% for category, message in messages %}
+                        <p
+                            class="flash flash-{{ category }}"
+                            data-category="{{ category }}"
+                            {% if category == "error" %}
+                                role="alert"
+                            {% else %}
+                                role="status"
+                            {% endif %}
+                        >
+                            {{ message }}
+                        </p>
+                    {% endfor %}
+                </section>
+            {% endif %}
+        {% endwith %}
+
+        {% block content %}{% endblock %}
+    </main>
+
+    <footer class="site-footer">
+        <p>
+            {{ config["RELEASE_NAME"] }}
+            ·
+            {{ config["APPLICATION_VERSION"] }}
+        </p>
+
+        {% block footer %}{% endblock %}
+    </footer>
+
+    {% block scripts %}{% endblock %}
+</body>
+</html>

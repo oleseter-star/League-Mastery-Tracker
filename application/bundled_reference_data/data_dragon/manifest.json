@@ -1,0 +1,10 @@
+{
+  "format": "league_mastery_tracker_champion_reference",
+  "format_version": 1,
+  "data_dragon_version": "16.14.1",
+  "locale": "en_US",
+  "champion_count": 173,
+  "source": "riot_data_dragon",
+  "generated_at": "2026-07-23T18:09:18.190535+00:00",
+  "champions_sha256": "52e3a2abdf8b0331e82b331bb0961547f62ad40efb01a1e5ad575f9c2c5cab1f"
+}

@@ -1,0 +1,547 @@
+{% extends "base.html" %}
+
+{% block title %}
+    Dashboard · League Mastery Tracker
+{% endblock %}
+
+{% block content %}
+    <header class="page-header">
+        <div class="page-header__content">
+            <p class="page-header__eyebrow">
+                League Mastery Tracker
+            </p>
+
+            <h1>
+                Dashboard
+            </h1>
+
+            <p class="page-header__description">
+                Review persons, synchronize Champion Mastery,
+                and check the local champion reference data used
+                by the application.
+            </p>
+        </div>
+
+        <div class="page-header__actions">
+            <a
+                class="button button-secondary"
+                href="/persons"
+            >
+                Manage persons
+            </a>
+
+            <a
+                class="button button-secondary"
+                href="/settings"
+            >
+                Settings
+            </a>
+        </div>
+    </header>
+
+    <div class="section-stack">
+        <section
+            class="card card--raised"
+            aria-labelledby="persons-heading"
+        >
+            <div class="card__header">
+                <div>
+                    <h2 id="persons-heading">
+                        Persons
+                    </h2>
+
+                    <p class="card__description">
+                        Open a person to review their Riot accounts
+                        and Champion Mastery.
+                    </p>
+                </div>
+
+                <span
+                    class="badge badge--info"
+                    aria-label="{{ person_count }} persons"
+                >
+                    {{ person_count }}
+                </span>
+            </div>
+
+            {% if persons %}
+                <div class="grid grid--auto">
+                    {% for person in persons %}
+                        <article class="card card--compact">
+                            <h3>
+                                {{ person.display_name }}
+                            </h3>
+
+                            <div class="actions">
+                                <a
+                                    class="button button-secondary"
+                                    href="/persons/{{ person.id }}"
+                                >
+                                    Open person
+                                </a>
+                            </div>
+                        </article>
+                    {% endfor %}
+                </div>
+            {% else %}
+                <div class="empty-state">
+                    <h3>
+                        No persons yet
+                    </h3>
+
+                    <p>
+                        No persons have been created yet.
+                        Add a person to begin managing Riot accounts
+                        and Champion Mastery.
+                    </p>
+
+                    <a
+                        class="button"
+                        href="/persons"
+                    >
+                        Add person
+                    </a>
+                </div>
+            {% endif %}
+
+            {% if persons %}
+                <div
+                    class="actions"
+                    style="margin-top: var(--space-5);"
+                >
+                    <a
+                        class="button button-secondary"
+                        href="/persons"
+                    >
+                        Add person
+                    </a>
+                </div>
+            {% endif %}
+        </section>
+
+        <section
+            class="card"
+            aria-labelledby="synchronize-heading"
+        >
+            <div class="card__header">
+                <div>
+                    <h2 id="synchronize-heading">
+                        Synchronize mastery
+                    </h2>
+
+                    <p class="card__description">
+                        Refresh locally stored Champion Mastery
+                        through the existing manual synchronization
+                        actions.
+                    </p>
+                </div>
+            </div>
+
+            <div class="grid grid--2">
+                <article class="card card--compact">
+                    <h3>
+                        Stale accounts
+                    </h3>
+
+                    <p>
+                        Synchronize accounts that have never been
+                        synchronized or were last synchronized at least
+                        24 hours ago.
+                    </p>
+
+                    <form
+                        method="post"
+                        action="/dashboard/mastery/refresh-stale"
+                    >
+                        <input
+                            type="hidden"
+                            name="_csrf_token"
+                            value="{{ csrf_token() }}"
+                        >
+
+                        <button type="submit">
+                            Synchronize stale accounts
+                        </button>
+                    </form>
+                </article>
+
+                <article class="card card--compact">
+                    <h3>
+                        All accounts
+                    </h3>
+
+                    <p>
+                        Force a new synchronization of every Riot account,
+                        regardless of when it was last synchronized.
+                    </p>
+
+                    <form
+                        method="post"
+                        action="/dashboard/mastery/refresh-all"
+                    >
+                        <input
+                            type="hidden"
+                            name="_csrf_token"
+                            value="{{ csrf_token() }}"
+                        >
+
+                        <button type="submit">
+                            Synchronize all accounts
+                        </button>
+                    </form>
+                </article>
+            </div>
+        </section>
+
+        <section
+            class="card"
+            aria-labelledby="reference-heading"
+        >
+            <div class="card__header">
+                <div>
+                    <h2 id="reference-heading">
+                        Champion reference data
+                    </h2>
+
+                    <p class="card__description">
+                        Review the local reference source and manually
+                        check Data Dragon when an update is needed.
+                    </p>
+                </div>
+
+                {% if
+                    champion_reference_status[
+                        "database_only"
+                    ]
+                %}
+                    <span class="badge badge--warning">
+                        Database-only fallback
+                    </span>
+                {% elif
+                    champion_reference_status[
+                        "uses_local_cache"
+                    ]
+                %}
+                    <span class="badge badge--success">
+                        Local cache
+                    </span>
+                {% elif
+                    champion_reference_status[
+                        "uses_bundled_fallback"
+                    ]
+                %}
+                    <span class="badge badge--info">
+                        Bundled dataset
+                    </span>
+                {% else %}
+                    <span class="badge">
+                        {{
+                            champion_reference_status[
+                                "active_source_label"
+                            ]
+                        }}
+                    </span>
+                {% endif %}
+            </div>
+
+            <dl class="status-list">
+                <div class="status-item">
+                    <dt>
+                        Active source
+                    </dt>
+
+                    <dd>
+                        {{
+                            champion_reference_status[
+                                "active_source_label"
+                            ]
+                        }}
+                    </dd>
+                </div>
+
+                <div class="status-item">
+                    <dt>
+                        Data Dragon version
+                    </dt>
+
+                    <dd>
+                        {% if
+                            champion_reference_status[
+                                "data_dragon_version"
+                            ]
+                        %}
+                            {{
+                                champion_reference_status[
+                                    "data_dragon_version"
+                                ]
+                            }}
+                        {% else %}
+                            Not available
+                        {% endif %}
+                    </dd>
+                </div>
+
+                <div class="status-item">
+                    <dt>
+                        Locale
+                    </dt>
+
+                    <dd>
+                        {% if
+                            champion_reference_status[
+                                "locale"
+                            ]
+                        %}
+                            {{
+                                champion_reference_status[
+                                    "locale"
+                                ]
+                            }}
+                        {% else %}
+                            Not available
+                        {% endif %}
+                    </dd>
+                </div>
+
+                <div class="status-item">
+                    <dt>
+                        Champions in active dataset
+                    </dt>
+
+                    <dd>
+                        {% if
+                            champion_reference_status[
+                                "dataset_champion_count"
+                            ]
+                            is not none
+                        %}
+                            {{
+                                champion_reference_status[
+                                    "dataset_champion_count"
+                                ]
+                            }}
+                        {% else %}
+                            Not available
+                        {% endif %}
+                    </dd>
+                </div>
+
+                <div class="status-item">
+                    <dt>
+                        Champions in database
+                    </dt>
+
+                    <dd>
+                        {% if
+                            champion_reference_status[
+                                "database_champion_count"
+                            ]
+                            is not none
+                        %}
+                            {{
+                                champion_reference_status[
+                                    "database_champion_count"
+                                ]
+                            }}
+                        {% else %}
+                            Not available
+                        {% endif %}
+                    </dd>
+                </div>
+
+                <div class="status-item">
+                    <dt>
+                        Last successful update
+                    </dt>
+
+                    <dd>
+                        {% if
+                            champion_reference_status[
+                                "last_successful_update"
+                            ]
+                        %}
+                            {{
+                                champion_reference_status[
+                                    "last_successful_update"
+                                ]
+                            }}
+                        {% else %}
+                            No manual update has been recorded.
+                        {% endif %}
+                    </dd>
+                </div>
+            </dl>
+
+            {% if
+                champion_reference_status[
+                    "uses_bundled_fallback"
+                ]
+            %}
+                <p class="notice notice-info">
+                    The application is using the bundled dataset.
+                </p>
+            {% elif
+                champion_reference_status[
+                    "uses_local_cache"
+                ]
+            %}
+                <p class="notice notice-success">
+                    The application is using a newer local cache.
+                </p>
+            {% elif
+                champion_reference_status[
+                    "database_only"
+                ]
+            %}
+                <p
+                    class="notice notice-warning"
+                    role="status"
+                >
+                    The reference dataset is unavailable.
+                    Existing database content remains available.
+                </p>
+            {% endif %}
+
+            <div class="grid grid--2">
+                <article class="card card--compact">
+                    <h3>
+                        Metadata status
+                    </h3>
+
+                    {% if
+                        champion_reference_status[
+                            "has_missing_metadata"
+                        ]
+                    %}
+                        <p class="warning-text">
+                            {{
+                                champion_reference_status[
+                                    "missing_metadata_count"
+                                ]
+                            }}
+                            champions are missing a name or image.
+                        </p>
+
+                        <dl class="metadata">
+                            <div class="metadata-item">
+                                <dt class="metadata-label">
+                                    Missing names
+                                </dt>
+
+                                <dd>
+                                    {{
+                                        champion_reference_status[
+                                            "missing_name_count"
+                                        ]
+                                    }}
+                                </dd>
+                            </div>
+
+                            <div class="metadata-item">
+                                <dt class="metadata-label">
+                                    Missing images
+                                </dt>
+
+                                <dd>
+                                    {{
+                                        champion_reference_status[
+                                            "missing_image_count"
+                                        ]
+                                    }}
+                                </dd>
+                            </div>
+                        </dl>
+                    {% else %}
+                        <p class="success-text">
+                            No champions are missing registered metadata.
+                        </p>
+                    {% endif %}
+
+                    <div
+                        class="actions"
+                        style="margin-top: var(--space-5);"
+                    >
+                        <a
+                            class="button button-secondary"
+                            href="/champions/missing"
+                        >
+                            Manage missing champion names
+                        </a>
+                    </div>
+                </article>
+
+                <article class="card card--compact">
+                    <h3>
+                        Reference update
+                    </h3>
+
+                    <p>
+                        Check the Data Dragon version and update local
+                        champion names and icons when necessary. Network
+                        access is used only when this action is started
+                        manually.
+                    </p>
+
+                    <form
+                        method="post"
+                        action="/dashboard/reference-data/refresh"
+                    >
+                        <input
+                            type="hidden"
+                            name="_csrf_token"
+                            value="{{ csrf_token() }}"
+                        >
+
+                        <button type="submit">
+                            Check for updates
+                        </button>
+                    </form>
+                </article>
+            </div>
+
+            {% if
+                champion_reference_status[
+                    "last_update_error"
+                ]
+            %}
+                <p
+                    class="notice notice-error"
+                    role="alert"
+                >
+                    {{
+                        champion_reference_status[
+                            "last_update_error"
+                        ]
+                    }}
+                </p>
+            {% endif %}
+
+            {% if
+                champion_reference_status[
+                    "warnings"
+                ]
+            %}
+                <div
+                    class="notice notice-warning"
+                    role="status"
+                >
+                    <strong>
+                        Reference data warnings
+                    </strong>
+
+                    <ul>
+                        {% for warning in
+                            champion_reference_status[
+                                "warnings"
+                            ]
+                        %}
+                            <li>
+                                {{ warning }}
+                            </li>
+                        {% endfor %}
+                    </ul>
+                </div>
+            {% endif %}
+        </section>
+    </div>
+{% endblock %}

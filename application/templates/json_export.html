@@ -1,0 +1,335 @@
+{% extends "base.html" %}
+
+{% block title %}
+    JSON export | League Mastery Tracker
+{% endblock %}
+
+{% block content %}
+    <header class="page-header">
+        <div class="page-header__content">
+            <p class="page-header__eyebrow">
+                Portable data
+            </p>
+
+            <h1>
+                JSON export
+            </h1>
+
+            <p class="page-header__description">
+                Create one portable JSON file containing the
+                application data.
+            </p>
+        </div>
+
+        <div class="page-header__actions">
+            <a
+                class="button button-secondary"
+                href="/settings"
+            >
+                Back to Settings
+            </a>
+        </div>
+    </header>
+
+    <div class="section-stack">
+        {% if export_error %}
+            <section
+                class="card card--danger"
+                aria-labelledby="export-unavailable-heading"
+            >
+                <div class="card__header">
+                    <div>
+                        <h2 id="export-unavailable-heading">
+                            Export unavailable
+                        </h2>
+                    </div>
+
+                    <span class="badge badge--danger">
+                        Error
+                    </span>
+                </div>
+
+                <p
+                    class="notice notice-error"
+                    role="alert"
+                >
+                    {{ export_error }}
+                </p>
+
+                <p>
+                    No export file has been created.
+                    Existing application data remains unchanged.
+                </p>
+            </section>
+
+        {% elif export_summary %}
+            <section
+                class="card card--raised"
+                aria-labelledby="export-contents-heading"
+            >
+                <div class="card__header">
+                    <div>
+                        <h2 id="export-contents-heading">
+                            Export contents
+                        </h2>
+
+                        <p class="card__description">
+                            The JSON file will contain the complete
+                            portable dataset currently stored by the
+                            application.
+                        </p>
+                    </div>
+                </div>
+
+                <div class="count-grid">
+                    <div class="count-card">
+                        <span class="count-value">
+                            {{
+                                export_summary[
+                                    "record_counts"
+                                ]["persons"]
+                            }}
+                        </span>
+
+                        <span class="count-label">
+                            Persons
+                        </span>
+                    </div>
+
+                    <div class="count-card">
+                        <span class="count-value">
+                            {{
+                                export_summary[
+                                    "record_counts"
+                                ]["riot_accounts"]
+                            }}
+                        </span>
+
+                        <span class="count-label">
+                            Riot accounts
+                        </span>
+                    </div>
+
+                    <div class="count-card">
+                        <span class="count-value">
+                            {{
+                                export_summary[
+                                    "record_counts"
+                                ]["champions"]
+                            }}
+                        </span>
+
+                        <span class="count-label">
+                            Champions
+                        </span>
+                    </div>
+
+                    <div class="count-card">
+                        <span class="count-value">
+                            {{
+                                export_summary[
+                                    "record_counts"
+                                ]["mastery_records"]
+                            }}
+                        </span>
+
+                        <span class="count-label">
+                            Mastery records
+                        </span>
+                    </div>
+                </div>
+            </section>
+
+            <section
+                class="card"
+                aria-labelledby="format-information-heading"
+            >
+                <div class="card__header">
+                    <div>
+                        <h2 id="format-information-heading">
+                            Format information
+                        </h2>
+
+                        <p class="card__description">
+                            Version information for the portable JSON
+                            data contract.
+                        </p>
+                    </div>
+                </div>
+
+                <dl class="metadata">
+                    <div class="metadata-item">
+                        <dt class="metadata-label">
+                            Format
+                        </dt>
+
+                        <dd>
+                            <code>
+                                {{
+                                    export_summary[
+                                        "format"
+                                    ]
+                                }}
+                            </code>
+                        </dd>
+                    </div>
+
+                    <div class="metadata-item">
+                        <dt class="metadata-label">
+                            Export format version
+                        </dt>
+
+                        <dd>
+                            {{
+                                export_summary[
+                                    "format_version"
+                                ]
+                            }}
+                        </dd>
+                    </div>
+
+                    <div class="metadata-item">
+                        <dt class="metadata-label">
+                            Database schema version
+                        </dt>
+
+                        <dd>
+                            {{
+                                export_summary[
+                                    "database_schema_version"
+                                ]
+                            }}
+                        </dd>
+                    </div>
+                </dl>
+            </section>
+
+            <section
+                class="card"
+                aria-labelledby="export-scope-heading"
+            >
+                <div class="card__header">
+                    <div>
+                        <h2 id="export-scope-heading">
+                            Portable data scope
+                        </h2>
+
+                        <p class="card__description">
+                            Portable domain data is separated from
+                            local credentials, backups, and internal
+                            application state.
+                        </p>
+                    </div>
+                </div>
+
+                <div class="two-columns">
+                    <article class="card card--compact">
+                        <h3>
+                            Included
+                        </h3>
+
+                        <ul>
+                            <li>
+                                Persons and display names
+                            </li>
+
+                            <li>
+                                Riot accounts and PUUIDs
+                            </li>
+
+                            <li>
+                                Platform regions and synchronization dates
+                            </li>
+
+                            <li>
+                                Champion reference data
+                            </li>
+
+                            <li>
+                                Champion Mastery points
+                            </li>
+                        </ul>
+                    </article>
+
+                    <article class="card card--compact">
+                        <h3>
+                            Not included
+                        </h3>
+
+                        <ul>
+                            <li>
+                                Riot API key
+                            </li>
+
+                            <li>
+                                Application secret key
+                            </li>
+
+                            <li>
+                                DPAPI-encrypted files
+                            </li>
+
+                            <li>
+                                Browser sessions
+                            </li>
+
+                            <li>
+                                Database backups
+                            </li>
+
+                            <li>
+                                Internal database primary keys
+                            </li>
+                        </ul>
+                    </article>
+                </div>
+            </section>
+
+            <section
+                class="card"
+                aria-labelledby="download-heading"
+            >
+                <div class="card__header">
+                    <div>
+                        <h2 id="download-heading">
+                            Download
+                        </h2>
+
+                        <p class="card__description">
+                            Generate the portable JSON file from the
+                            current application data.
+                        </p>
+                    </div>
+                </div>
+
+                <div
+                    class="privacy-warning"
+                    role="status"
+                >
+                    <strong>
+                        Store the export carefully.
+                    </strong>
+
+                    <p>
+                        The export contains Riot PUUIDs and account
+                        information.
+                    </p>
+                </div>
+
+                <div class="actions">
+                    <a
+                        class="button"
+                        href="{{
+                            url_for(
+                                'json_export.'
+                                'download_json_export'
+                            )
+                        }}"
+                    >
+                        Download JSON export
+                    </a>
+                </div>
+            </section>
+        {% endif %}
+    </div>
+{% endblock %}

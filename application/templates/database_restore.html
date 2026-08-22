@@ -1,0 +1,526 @@
+{% extends "base.html" %}
+
+{% block title %}
+    Database restore | League Mastery Tracker
+{% endblock %}
+
+{% block content %}
+    <header class="page-header">
+        <div class="page-header__content">
+            <p class="page-header__eyebrow">
+                Database backup
+            </p>
+
+            <h1>
+                Database restore
+            </h1>
+
+            <p class="page-header__description">
+                Restore the application database from an
+                internally created backup.
+            </p>
+        </div>
+
+        <div class="page-header__actions">
+            <a
+                class="button button-secondary"
+                href="/settings"
+            >
+                Back to Settings
+            </a>
+        </div>
+    </header>
+
+    <div class="section-stack">
+        {% if
+            startup_restore_result
+            and startup_restore_result.applied
+        %}
+            <section
+                class="card card--success"
+                aria-labelledby="restore-completed-heading"
+            >
+                <div class="card__header">
+                    <div>
+                        <h2 id="restore-completed-heading">
+                            Restore completed
+                        </h2>
+
+                        <p class="card__description">
+                            The pending database restore was
+                            successfully applied during startup.
+                        </p>
+                    </div>
+
+                    <span class="badge badge--success">
+                        Completed
+                    </span>
+                </div>
+
+                <p>
+                    The application successfully restored:
+                </p>
+
+                <p>
+                    <strong>
+                        {{
+                            startup_restore_result
+                            .source_backup_file_name
+                        }}
+                    </strong>
+                </p>
+
+                {% if
+                    startup_restore_result
+                    .safety_backup_file
+                %}
+                    <p
+                        class="notice notice-success"
+                        role="status"
+                    >
+                        A safety backup of the previous live
+                        database was created before replacement.
+                    </p>
+                {% endif %}
+            </section>
+        {% endif %}
+
+        {% if pending_restore_error %}
+            <section
+                class="card card--danger"
+                aria-labelledby="invalid-restore-heading"
+            >
+                <div class="card__header">
+                    <div>
+                        <h2 id="invalid-restore-heading">
+                            Invalid pending restore
+                        </h2>
+
+                        <p class="card__description">
+                            The staged restore cannot be applied
+                            safely.
+                        </p>
+                    </div>
+
+                    <span class="badge badge--danger">
+                        Invalid
+                    </span>
+                </div>
+
+                <p
+                    class="notice notice-error"
+                    role="alert"
+                >
+                    {{ pending_restore_error }}
+                </p>
+
+                <p>
+                    The application will not apply this restore
+                    request. It can be cancelled to remove the
+                    invalid staging data.
+                </p>
+
+                <form
+                    method="post"
+                    action="{{
+                        url_for(
+                            'database_restore.'
+                            'cancel_database_restore'
+                        )
+                    }}"
+                >
+                    <input
+                        type="hidden"
+                        name="_csrf_token"
+                        value="{{ csrf_token() }}"
+                    >
+
+                    <div class="actions">
+                        <button
+                            class="button-danger"
+                            type="submit"
+                        >
+                            Remove invalid pending restore
+                        </button>
+                    </div>
+                </form>
+            </section>
+
+        {% elif pending_restore %}
+            <section
+                class="card card--warning"
+                aria-labelledby="restore-pending-heading"
+            >
+                <div class="card__header">
+                    <div>
+                        <h2 id="restore-pending-heading">
+                            Restore pending
+                        </h2>
+
+                        <p class="card__description">
+                            The selected backup has been staged and
+                            verified but has not replaced the live
+                            database.
+                        </p>
+                    </div>
+
+                    <span class="badge badge--warning">
+                        Restart required
+                    </span>
+                </div>
+
+                <p
+                    class="notice notice-warning"
+                    role="status"
+                >
+                    Restart required. The database has not been
+                    replaced yet.
+                </p>
+
+                <dl class="metadata">
+                    <div class="metadata-item">
+                        <dt class="metadata-label">
+                            Source backup
+                        </dt>
+
+                        <dd>
+                            {{
+                                pending_restore
+                                .source_backup_file_name
+                            }}
+                        </dd>
+                    </div>
+
+                    <div class="metadata-item">
+                        <dt class="metadata-label">
+                            Schema version
+                        </dt>
+
+                        <dd>
+                            {% if pending_restore.unversioned %}
+                                Unversioned
+                            {% else %}
+                                {{ pending_restore.schema_version }}
+                            {% endif %}
+                        </dd>
+                    </div>
+
+                    <div class="metadata-item">
+                        <dt class="metadata-label">
+                            Size
+                        </dt>
+
+                        <dd>
+                            {{
+                                "{:,}".format(
+                                    pending_restore.size_bytes
+                                )
+                            }}
+                            bytes
+                        </dd>
+                    </div>
+
+                    <div class="metadata-item">
+                        <dt class="metadata-label">
+                            Requested
+                        </dt>
+
+                        <dd>
+                            {{
+                                pending_restore
+                                .requested_at
+                                .strftime(
+                                    "%Y-%m-%d %H:%M:%S %Z"
+                                )
+                            }}
+                        </dd>
+                    </div>
+                </dl>
+
+                <div
+                    class="restart-steps"
+                    aria-labelledby="restart-steps-heading"
+                >
+                    <h3 id="restart-steps-heading">
+                        Complete the restore
+                    </h3>
+
+                    <p>
+                        1. Stop the application with
+                        <code>Ctrl+C</code>.
+                    </p>
+
+                    <p>
+                        2. Start it again with
+                        <code>python run.py</code>.
+                    </p>
+
+                    <p>
+                        3. Return to this page and verify that
+                        the restore completed.
+                    </p>
+                </div>
+
+                <div class="actions">
+                    <form
+                        method="post"
+                        action="{{
+                            url_for(
+                                'database_restore.'
+                                'cancel_database_restore'
+                            )
+                        }}"
+                    >
+                        <input
+                            type="hidden"
+                            name="_csrf_token"
+                            value="{{ csrf_token() }}"
+                        >
+
+                        <button
+                            class="button-danger"
+                            type="submit"
+                        >
+                            Cancel pending restore
+                        </button>
+                    </form>
+                </div>
+            </section>
+        {% endif %}
+
+        <section
+            class="card"
+            aria-labelledby="available-backups-heading"
+        >
+            <div class="card__header">
+                <div>
+                    <h2 id="available-backups-heading">
+                        Available backups
+                    </h2>
+
+                    <p class="card__description">
+                        Review internal database backups and select
+                        one to stage for the next application startup.
+                    </p>
+                </div>
+
+                {% if restore_candidates %}
+                    <span
+                        class="badge badge--info"
+                        aria-label="{{
+                            restore_candidates | length
+                        }} available database backups"
+                    >
+                        {{ restore_candidates | length }}
+                    </span>
+                {% endif %}
+            </div>
+
+            <p>
+                Selecting a backup does not immediately replace
+                the database. It creates a verified pending
+                restore that is applied during the next startup.
+            </p>
+
+            {% if restore_candidates_error %}
+                <div
+                    class="notice notice-error"
+                    role="alert"
+                >
+                    <strong>
+                        Available backups could not be loaded.
+                    </strong>
+
+                    <p>
+                        {{ restore_candidates_error }}
+                    </p>
+
+                    <p>
+                        The current database remains unchanged.
+                    </p>
+                </div>
+
+            {% elif not restore_candidates %}
+                <div class="empty-state">
+                    <h3>
+                        No database backups are available.
+                    </h3>
+
+                    <p>
+                        Create a database backup from Settings
+                        before using database restore.
+                    </p>
+
+                    <a
+                        class="button button-secondary"
+                        href="/settings"
+                    >
+                        Back to Settings
+                    </a>
+                </div>
+
+            {% else %}
+                <div class="backup-list">
+                    {% for backup in restore_candidates %}
+                        <article
+                            class="
+                                backup
+                                {% if not backup.valid %}
+                                    backup-invalid
+                                {% endif %}
+                            "
+                        >
+                            <div class="card__header">
+                                <div>
+                                    <h3 class="backup-title">
+                                        {{ backup.file_name }}
+                                    </h3>
+                                </div>
+
+                                {% if backup.valid %}
+                                    <span
+                                        class="badge badge--success"
+                                    >
+                                        Valid
+                                    </span>
+                                {% else %}
+                                    <span
+                                        class="badge badge--danger"
+                                    >
+                                        Invalid
+                                    </span>
+                                {% endif %}
+                            </div>
+
+                            <dl class="metadata">
+                                {% if backup.modified_at %}
+                                    <div class="metadata-item">
+                                        <dt class="metadata-label">
+                                            Created
+                                        </dt>
+
+                                        <dd>
+                                            {{
+                                                backup.modified_at
+                                                .strftime(
+                                                    "%Y-%m-%d "
+                                                    "%H:%M:%S %Z"
+                                                )
+                                            }}
+                                        </dd>
+                                    </div>
+                                {% endif %}
+
+                                {% if
+                                    backup.size_bytes
+                                    is not none
+                                %}
+                                    <div class="metadata-item">
+                                        <dt class="metadata-label">
+                                            Size
+                                        </dt>
+
+                                        <dd>
+                                            {{
+                                                "{:,}".format(
+                                                    backup.size_bytes
+                                                )
+                                            }}
+                                            bytes
+                                        </dd>
+                                    </div>
+                                {% endif %}
+
+                                {% if backup.valid %}
+                                    <div class="metadata-item">
+                                        <dt class="metadata-label">
+                                            Schema
+                                        </dt>
+
+                                        <dd>
+                                            {% if backup.unversioned %}
+                                                Unversioned legacy backup
+                                            {% else %}
+                                                Version
+                                                {{ backup.schema_version }}
+                                            {% endif %}
+                                        </dd>
+                                    </div>
+                                {% endif %}
+                            </dl>
+
+                            {% if backup.valid %}
+                                <form
+                                    class="restore-form"
+                                    method="post"
+                                    action="{{
+                                        url_for(
+                                            'database_restore.'
+                                            'stage_database_restore'
+                                        )
+                                    }}"
+                                >
+                                    <input
+                                        type="hidden"
+                                        name="_csrf_token"
+                                        value="{{ csrf_token() }}"
+                                    >
+
+                                    <input
+                                        type="hidden"
+                                        name="backup_file_name"
+                                        value="{{ backup.file_name }}"
+                                    >
+
+                                    <div class="form-field">
+                                        <label
+                                            for="confirmation-{{ loop.index }}"
+                                        >
+                                            Type RESTORE to confirm
+                                        </label>
+
+                                        <input
+                                            id="confirmation-{{ loop.index }}"
+                                            type="text"
+                                            name="confirmation"
+                                            autocomplete="off"
+                                            spellcheck="false"
+                                            required
+                                            aria-describedby="confirmation-help-{{ loop.index }}"
+                                        >
+
+                                        <p
+                                            id="confirmation-help-{{ loop.index }}"
+                                            class="form-help"
+                                        >
+                                            This stages
+                                            {{ backup.file_name }}
+                                            for database restore during
+                                            the next application startup.
+                                        </p>
+                                    </div>
+
+                                    <button type="submit">
+                                        Stage this restore
+                                    </button>
+                                </form>
+
+                            {% else %}
+                                <div
+                                    class="notice notice-error"
+                                    role="alert"
+                                >
+                                    <strong>
+                                        This backup cannot be restored:
+                                    </strong>
+
+                                    {{ backup.error }}
+                                </div>
+                            {% endif %}
+                        </article>
+                    {% endfor %}
+                </div>
+            {% endif %}
+        </section>
+    </div>
+{% endblock %}

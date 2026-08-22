@@ -1,0 +1,696 @@
+{% extends "base.html" %}
+
+{% block title %}
+    JSON import | League Mastery Tracker
+{% endblock %}
+
+{% block content %}
+    <header class="page-header">
+        <div class="page-header__content">
+            <p class="page-header__eyebrow">
+                Portable data
+            </p>
+
+            <h1>
+                Import portable JSON data
+            </h1>
+
+            <p class="page-header__description">
+                Validate and preview a League Mastery Tracker export
+                before any database changes are allowed.
+            </p>
+        </div>
+
+        <div class="page-header__actions">
+            <a
+                class="button button-secondary"
+                href="/settings"
+            >
+                Back to Settings
+            </a>
+        </div>
+    </header>
+
+    {% if not prepared_import %}
+        <div class="section-stack">
+            <section
+                class="card card--raised"
+                aria-labelledby="select-export-heading"
+            >
+                <div class="card__header">
+                    <div>
+                        <h2 id="select-export-heading">
+                            Select export file
+                        </h2>
+
+                        <p class="card__description">
+                            Upload a JSON file previously exported
+                            from League Mastery Tracker.
+                        </p>
+                    </div>
+                </div>
+
+                <div
+                    class="notice notice-info"
+                    role="status"
+                >
+                    The file is validated and previewed before the
+                    database can be changed.
+                </div>
+
+                <form
+                    class="form-stack"
+                    method="post"
+                    enctype="multipart/form-data"
+                    action="{{ url_for(
+                        'json_import.stage_json_import'
+                    ) }}"
+                >
+                    <input
+                        type="hidden"
+                        name="_csrf_token"
+                        value="{{ csrf_token() }}"
+                    >
+
+                    <div class="form-field">
+                        <label for="import_file">
+                            JSON export file
+                        </label>
+
+                        <input
+                            id="import_file"
+                            name="import_file"
+                            type="file"
+                            accept=".json,application/json"
+                            required
+                            aria-describedby="import-file-help"
+                        >
+
+                        <p
+                            id="import-file-help"
+                            class="form-help"
+                        >
+                            Maximum file size:
+                            {{ max_file_size_mib }} MiB.
+                        </p>
+                    </div>
+
+                    <div class="actions">
+                        <button type="submit">
+                            Validate and preview
+                        </button>
+                    </div>
+                </form>
+            </section>
+        </div>
+
+    {% else %}
+        {% set source = prepared_import.source %}
+        {% set preview = prepared_import.preview %}
+        {% set summary = preview.summary %}
+        {% set staging = prepared_import.staging %}
+
+        <div class="section-stack">
+            <section
+                class="card"
+                aria-labelledby="selected-file-heading"
+            >
+                <div class="card__header">
+                    <div>
+                        <h2 id="selected-file-heading">
+                            Selected file
+                        </h2>
+
+                        <p class="card__description">
+                            Metadata from the validated temporary
+                            import source.
+                        </p>
+                    </div>
+                </div>
+
+                <dl class="metadata">
+                    <div class="metadata-item">
+                        <dt class="metadata-label">
+                            File name
+                        </dt>
+
+                        <dd>
+                            <code>
+                                {{ staging.original_file_name }}
+                            </code>
+                        </dd>
+                    </div>
+
+                    <div class="metadata-item">
+                        <dt class="metadata-label">
+                            File size
+                        </dt>
+
+                        <dd>
+                            {{
+                                "%.1f"|format(
+                                    source.file_size_bytes / 1024
+                                )
+                            }}
+                            KiB
+                        </dd>
+                    </div>
+
+                    <div class="metadata-item">
+                        <dt class="metadata-label">
+                            Exported at
+                        </dt>
+
+                        <dd>
+                            {{ source.exported_at }}
+                        </dd>
+                    </div>
+
+                    <div class="metadata-item">
+                        <dt class="metadata-label">
+                            Format version
+                        </dt>
+
+                        <dd>
+                            {{ source.format_version }}
+                        </dd>
+                    </div>
+
+                    <div class="metadata-item">
+                        <dt class="metadata-label">
+                            Database schema version
+                        </dt>
+
+                        <dd>
+                            {{ source.database_schema_version }}
+                        </dd>
+                    </div>
+
+                    <div class="metadata-item">
+                        <dt class="metadata-label">
+                            SHA-256
+                        </dt>
+
+                        <dd>
+                            <code>
+                                {{ source.sha256 }}
+                            </code>
+                        </dd>
+                    </div>
+
+                    <div class="metadata-item">
+                        <dt class="metadata-label">
+                            Temporary storage expires
+                        </dt>
+
+                        <dd>
+                            {{ staging.expires_at }}
+                        </dd>
+                    </div>
+                </dl>
+            </section>
+
+            <section
+                class="
+                    card
+                    {% if preview.can_import %}
+                        card--success
+                    {% else %}
+                        card--warning
+                    {% endif %}
+                "
+                aria-labelledby="preview-heading"
+            >
+                <div class="card__header">
+                    <div>
+                        <h2 id="preview-heading">
+                            Preview
+                        </h2>
+
+                        <p class="card__description">
+                            Compare the portable data with the
+                            current local database before importing.
+                        </p>
+                    </div>
+
+                    {% if preview.can_import %}
+                        <span class="badge badge--success">
+                            Ready to import
+                        </span>
+                    {% else %}
+                        <span class="badge badge--warning">
+                            Import blocked
+                        </span>
+                    {% endif %}
+                </div>
+
+                {% if preview.can_import %}
+                    <p
+                        class="notice notice-success"
+                        role="status"
+                    >
+                        <strong>
+                            Ready to import
+                        </strong>
+
+                        No blocking PUUID conflicts were found.
+                    </p>
+                {% else %}
+                    <div
+                        class="notice notice-warning"
+                        role="alert"
+                    >
+                        <strong>
+                            Import blocked
+                        </strong>
+
+                        <p>
+                            No data will be written until the
+                            conflicts are handled in a future
+                            merge workflow.
+                        </p>
+                    </div>
+                {% endif %}
+
+                <div class="table-scroll">
+                    <table>
+                        <caption class="sr-only">
+                            JSON import record preview
+                        </caption>
+
+                        <thead>
+                            <tr>
+                                <th scope="col">
+                                    Data type
+                                </th>
+
+                                <th scope="col">
+                                    In file
+                                </th>
+
+                                <th scope="col">
+                                    New
+                                </th>
+
+                                <th scope="col">
+                                    Existing or blocked
+                                </th>
+                            </tr>
+                        </thead>
+
+                        <tbody>
+                            <tr>
+                                <th scope="row">
+                                    Persons
+                                </th>
+
+                                <td>
+                                    {{ summary.persons_in_file }}
+                                </td>
+
+                                <td>
+                                    {{ summary.ready_persons }}
+                                </td>
+
+                                <td>
+                                    {{ summary.blocked_persons }}
+                                </td>
+                            </tr>
+
+                            <tr>
+                                <th scope="row">
+                                    Riot accounts
+                                </th>
+
+                                <td>
+                                    {{ summary.riot_accounts_in_file }}
+                                </td>
+
+                                <td>
+                                    {{ summary.new_riot_accounts }}
+                                </td>
+
+                                <td>
+                                    {{
+                                        summary.blocked_riot_accounts
+                                    }}
+                                </td>
+                            </tr>
+
+                            <tr>
+                                <th scope="row">
+                                    Champions
+                                </th>
+
+                                <td>
+                                    {{ summary.champions_in_file }}
+                                </td>
+
+                                <td>
+                                    {{ summary.new_champions }}
+                                </td>
+
+                                <td>
+                                    {{ summary.existing_champions }}
+                                </td>
+                            </tr>
+
+                            <tr>
+                                <th scope="row">
+                                    Mastery records
+                                </th>
+
+                                <td>
+                                    {{
+                                        summary.mastery_records_in_file
+                                    }}
+                                </td>
+
+                                <td>
+                                    {{
+                                        summary
+                                        .mastery_records_on_new_accounts
+                                    }}
+                                </td>
+
+                                <td>
+                                    {{
+                                        summary
+                                        .mastery_records_on_blocked_accounts
+                                    }}
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            {% if preview.warnings %}
+                <section
+                    class="card card--warning"
+                    aria-labelledby="warnings-heading"
+                >
+                    <div class="card__header">
+                        <div>
+                            <h2 id="warnings-heading">
+                                Warnings
+                            </h2>
+                        </div>
+
+                        <span class="badge badge--warning">
+                            {{ preview.warnings | length }}
+                        </span>
+                    </div>
+
+                    <div
+                        class="notice notice-warning"
+                        role="status"
+                    >
+                        <ul>
+                            {% for warning in preview.warnings %}
+                                <li>
+                                    {{ warning.message }}
+                                </li>
+                            {% endfor %}
+                        </ul>
+                    </div>
+                </section>
+            {% endif %}
+
+            {% if preview.blockers %}
+                <section
+                    class="card card--danger"
+                    aria-labelledby="blocking-conflicts-heading"
+                >
+                    <div class="card__header">
+                        <div>
+                            <h2 id="blocking-conflicts-heading">
+                                Blocking conflicts
+                            </h2>
+
+                            <p class="card__description">
+                                These conflicts prevent the current
+                                import from being applied.
+                            </p>
+                        </div>
+
+                        <span class="badge badge--danger">
+                            {{ preview.blockers | length }}
+                        </span>
+                    </div>
+
+                    <div
+                        class="notice notice-error"
+                        role="alert"
+                    >
+                        <ul>
+                            {% for blocker in preview.blockers %}
+                                <li>
+                                    {{ blocker.message }}
+
+                                    {% if
+                                        blocker
+                                        .local_person_display_name
+                                    %}
+                                        Local person:
+                                        <strong>
+                                            {{
+                                                blocker
+                                                .local_person_display_name
+                                            }}
+                                        </strong>.
+                                    {% endif %}
+                                </li>
+                            {% endfor %}
+                        </ul>
+                    </div>
+                </section>
+            {% endif %}
+
+            <section
+                class="card"
+                aria-labelledby="persons-accounts-heading"
+            >
+                <div class="card__header">
+                    <div>
+                        <h2 id="persons-accounts-heading">
+                            Persons and accounts
+                        </h2>
+
+                        <p class="card__description">
+                            Review the persons, Riot accounts, and
+                            mastery record counts represented by the
+                            export.
+                        </p>
+                    </div>
+                </div>
+
+                {% if preview.persons %}
+                    <div class="grid grid--auto">
+                        {% for person in preview.persons %}
+                            <article class="card card--compact">
+                                <div class="card__header">
+                                    <h3>
+                                        {{ person.display_name }}
+                                    </h3>
+
+                                    {% if person.status == "ready" %}
+                                        <span
+                                            class="badge badge--success"
+                                        >
+                                            Ready
+                                        </span>
+                                    {% else %}
+                                        <span
+                                            class="badge badge--warning"
+                                        >
+                                            Blocked
+                                        </span>
+                                    {% endif %}
+                                </div>
+
+                                {% if person.riot_accounts %}
+                                    <ul>
+                                        {% for account in
+                                            person.riot_accounts
+                                        %}
+                                            <li>
+                                                <strong>
+                                                    {{ account.game_name }}
+                                                    #{{ account.tag_line }}
+                                                </strong>
+
+                                                —
+                                                {{ account.platform_region }}
+
+                                                —
+                                                {{
+                                                    account
+                                                    .mastery_record_count
+                                                }}
+                                                mastery record(s)
+
+                                                {% if
+                                                    account.status
+                                                    == "new"
+                                                %}
+                                                    — New account
+                                                {% else %}
+                                                    — Already exists
+                                                {% endif %}
+                                            </li>
+                                        {% endfor %}
+                                    </ul>
+                                {% else %}
+                                    <p class="muted">
+                                        This person has no Riot
+                                        accounts in the export file.
+                                    </p>
+                                {% endif %}
+                            </article>
+                        {% endfor %}
+                    </div>
+                {% else %}
+                    <div class="empty-state">
+                        <h3>
+                            No persons in the export
+                        </h3>
+
+                        <p>
+                            The export file contains no persons.
+                        </p>
+                    </div>
+                {% endif %}
+            </section>
+
+            {% if preview.can_import and prepared_import.plan %}
+                <section
+                    class="card card--warning"
+                    aria-labelledby="confirm-import-heading"
+                >
+                    <div class="card__header">
+                        <div>
+                            <h2 id="confirm-import-heading">
+                                Confirm import
+                            </h2>
+
+                            <p class="card__description">
+                                Review the safety guarantees before
+                                applying the prepared import plan.
+                            </p>
+                        </div>
+                    </div>
+
+                    <div
+                        class="notice notice-warning"
+                        role="status"
+                    >
+                        <p>
+                            A new database backup will be created
+                            before the import begins.
+                        </p>
+
+                        <p>
+                            All database changes are performed in
+                            one transaction and rolled back if
+                            anything fails.
+                        </p>
+                    </div>
+
+                    <form
+                        class="form-stack"
+                        method="post"
+                        action="{{ url_for(
+                            'json_import.execute_json_import'
+                        ) }}"
+                    >
+                        <input
+                            type="hidden"
+                            name="_csrf_token"
+                            value="{{ csrf_token() }}"
+                        >
+
+                        <div class="form-field">
+                            <label for="confirmation_text">
+                                Type
+                                <code>
+                                    {{ confirmation_text }}
+                                </code>
+                                to confirm
+                            </label>
+
+                            <input
+                                id="confirmation_text"
+                                name="confirmation_text"
+                                type="text"
+                                autocomplete="off"
+                                spellcheck="false"
+                                required
+                                aria-describedby="confirmation-help"
+                            >
+
+                            <p
+                                id="confirmation-help"
+                                class="form-help"
+                            >
+                                The import will not run unless the
+                                confirmation text matches exactly.
+                            </p>
+                        </div>
+
+                        <div class="actions">
+                            <button type="submit">
+                                Run JSON import
+                            </button>
+                        </div>
+                    </form>
+                </section>
+            {% endif %}
+
+            <section
+                class="card"
+                aria-labelledby="cancel-import-heading"
+            >
+                <div class="card__header">
+                    <div>
+                        <h2 id="cancel-import-heading">
+                            Cancel
+                        </h2>
+
+                        <p class="card__description">
+                            Discard the staged source without
+                            changing application data.
+                        </p>
+                    </div>
+                </div>
+
+                <p>
+                    Cancelling only removes the temporary import
+                    file. The database is not changed.
+                </p>
+
+                <form
+                    method="post"
+                    action="{{ url_for(
+                        'json_import.cancel_json_import'
+                    ) }}"
+                >
+                    <input
+                        type="hidden"
+                        name="_csrf_token"
+                        value="{{ csrf_token() }}"
+                    >
+
+                    <div class="actions">
+                        <button
+                            class="button-secondary"
+                            type="submit"
+                        >
+                            Cancel and remove temporary file
+                        </button>
+                    </div>
+                </form>
+            </section>
+        </div>
+    {% endif %}
+{% endblock %}

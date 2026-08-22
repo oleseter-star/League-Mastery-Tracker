@@ -1,0 +1,672 @@
+{% extends "base.html" %}
+
+{% block title %}
+    Settings | League Mastery Tracker
+{% endblock %}
+
+{% block content %}
+    <header class="page-header">
+        <div class="page-header__content">
+            <p class="page-header__eyebrow">
+                Administration
+            </p>
+
+            <h1>
+                Settings
+            </h1>
+
+            <p class="page-header__description">
+                Manage the Riot API key, portable data, database
+                backups, application storage, and controlled shutdown.
+            </p>
+        </div>
+
+        <div class="page-header__actions">
+            <a
+                class="button button-secondary"
+                href="/"
+            >
+                Back to Dashboard
+            </a>
+        </div>
+    </header>
+
+    <div class="section-stack">
+        <section
+            class="card card--raised"
+            aria-labelledby="riot-api-key-heading"
+        >
+            <div class="card__header">
+                <div>
+                    <h2 id="riot-api-key-heading">
+                        Riot API key
+                    </h2>
+
+                    <p class="card__description">
+                        Configure the key used by existing manual
+                        Riot synchronization workflows.
+                    </p>
+                </div>
+
+                {% if api_key_status.error %}
+                    <span class="badge badge--danger">
+                        Unavailable
+                    </span>
+                {% elif api_key_status.configured %}
+                    <span class="badge badge--success">
+                        Configured
+                    </span>
+                {% else %}
+                    <span class="badge badge--warning">
+                        Required
+                    </span>
+                {% endif %}
+            </div>
+
+            {% if api_key_status.error %}
+                <div
+                    class="notice notice-error"
+                    role="alert"
+                >
+                    <strong>
+                        The locally stored Riot API key could not be
+                        decrypted.
+                    </strong>
+
+                    <p>
+                        The file may be damaged or encrypted by another
+                        Windows user. Save a new Riot API key below to
+                        replace it.
+                    </p>
+                </div>
+
+                <details>
+                    <summary>
+                        Technical information
+                    </summary>
+
+                    <p>
+                        {{ api_key_status.error }}
+                    </p>
+                </details>
+
+            {% elif api_key_status.configured %}
+                <p>
+                    A Riot API key is configured.
+                </p>
+
+                <dl class="metadata">
+                    <div class="metadata-item">
+                        <dt class="metadata-label">
+                            Active key
+                        </dt>
+
+                        <dd>
+                            <code>
+                                {{ api_key_status.masked_key }}
+                            </code>
+                        </dd>
+                    </div>
+
+                    <div class="metadata-item">
+                        <dt class="metadata-label">
+                            Source
+                        </dt>
+
+                        <dd>
+                            {% if api_key_status.source == "local" %}
+                                Stored locally by the application
+                            {% elif api_key_status.source == "environment" %}
+                                Environment variable
+                            {% else %}
+                                Unknown
+                            {% endif %}
+                        </dd>
+                    </div>
+
+                    {% if api_key_status.source == "local" %}
+                        <div class="metadata-item">
+                            <dt class="metadata-label">
+                                Encryption
+                            </dt>
+
+                            <dd>
+                                Encrypted with Windows DPAPI
+                            </dd>
+                        </div>
+
+                        <div class="metadata-item">
+                            <dt class="metadata-label">
+                                Access
+                            </dt>
+
+                            <dd>
+                                The same Windows user on this computer
+                            </dd>
+                        </div>
+                    {% endif %}
+                </dl>
+
+            {% else %}
+                <p
+                    class="notice notice-warning"
+                    role="status"
+                >
+                    No Riot API key is configured.
+                    Riot accounts cannot be synchronized until a
+                    valid key has been entered.
+                </p>
+            {% endif %}
+
+            <p>
+                Development API keys expire regularly and must be
+                replaced when Riot deactivates them.
+            </p>
+
+            <p>
+                <a
+                    href="https://developer.riotgames.com/"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                >
+                    Get a Riot API key from the Riot Developer Portal
+                </a>
+            </p>
+
+            <form
+                class="form-stack"
+                method="post"
+                action="{{ url_for(
+                    'settings.save_riot_api_key'
+                ) }}"
+            >
+                <input
+                    type="hidden"
+                    name="_csrf_token"
+                    value="{{ csrf_token() }}"
+                >
+
+                <div class="form-field">
+                    <label for="api_key">
+                        New Riot API key
+                    </label>
+
+                    <input
+                        id="api_key"
+                        name="api_key"
+                        type="password"
+                        minlength="20"
+                        maxlength="512"
+                        autocomplete="off"
+                        spellcheck="false"
+                        required
+                        aria-describedby="api-key-help"
+                    >
+
+                    <p
+                        id="api-key-help"
+                        class="form-help"
+                    >
+                        The key is stored locally and is never shown
+                        in full after it has been saved.
+                    </p>
+                </div>
+
+                <div class="actions">
+                    <button type="submit">
+                        Save or replace key
+                    </button>
+                </div>
+            </form>
+
+            {% if api_key_status.source == "local" %}
+                <form
+                    method="post"
+                    action="{{ url_for(
+                        'settings.delete_riot_api_key'
+                    ) }}"
+                    onsubmit="
+                        return confirm(
+                            'Are you sure you want to remove '
+                            + 'the locally stored Riot API key?'
+                        );
+                    "
+                >
+                    <input
+                        type="hidden"
+                        name="_csrf_token"
+                        value="{{ csrf_token() }}"
+                    >
+
+                    <div class="actions">
+                        <button
+                            class="button-danger"
+                            type="submit"
+                        >
+                            Remove locally stored key
+                        </button>
+                    </div>
+                </form>
+            {% endif %}
+        </section>
+
+        <section
+            class="card"
+            aria-labelledby="portable-data-heading"
+        >
+            <div class="card__header">
+                <div>
+                    <h2 id="portable-data-heading">
+                        Portable data
+                    </h2>
+
+                    <p class="card__description">
+                        Export portable application data, import a
+                        previous JSON export, or restore an internal
+                        database backup.
+                    </p>
+                </div>
+            </div>
+
+            <div class="grid grid--3">
+                <article class="card card--compact">
+                    <h3>
+                        JSON export
+                    </h3>
+
+                    <p>
+                        Create a portable JSON export of supported
+                        application data.
+                    </p>
+
+                    <a
+                        class="button button-secondary"
+                        href="/settings/data-export"
+                    >
+                        Open JSON export
+                    </a>
+                </article>
+
+                <article class="card card--compact">
+                    <h3>
+                        JSON import
+                    </h3>
+
+                    <p>
+                        Import portable data from a previous
+                        League Mastery Tracker JSON export.
+                    </p>
+
+                    <a
+                        class="button button-secondary"
+                        href="/settings/data-import"
+                    >
+                        Open JSON import
+                    </a>
+                </article>
+
+                <article class="card card--compact">
+                    <h3>
+                        Database restore
+                    </h3>
+
+                    <p>
+                        Review existing internal database backups
+                        before selecting one to restore.
+                    </p>
+
+                    <a
+                        class="button button-secondary"
+                        href="/settings/database-restore"
+                    >
+                        Restore database backup
+                    </a>
+                </article>
+            </div>
+
+            <p class="form-help">
+                The JSON export contains portable domain data, but
+                not the Riot API key or other local secrets.
+            </p>
+        </section>
+
+        <section
+            class="card"
+            aria-labelledby="database-backup-heading"
+        >
+            <div class="card__header">
+                <div>
+                    <h2 id="database-backup-heading">
+                        Database backup
+                    </h2>
+
+                    <p class="card__description">
+                        Maintain internal SQLite backups independently
+                        from portable JSON data.
+                    </p>
+                </div>
+
+                {% if backup_status.exists %}
+                    <span class="badge badge--success">
+                        Available
+                    </span>
+                {% else %}
+                    <span class="badge">
+                        No backups yet
+                    </span>
+                {% endif %}
+            </div>
+
+            <p>
+                The application automatically creates a local
+                database backup at startup when the newest backup
+                is at least 24 hours old.
+            </p>
+
+            <p>
+                The 10 newest backup files are retained
+                automatically.
+            </p>
+
+            {% if startup_backup_error %}
+                <p
+                    class="notice notice-error"
+                    role="alert"
+                >
+                    The automatic backup during the latest startup
+                    failed:
+                    {{ startup_backup_error }}
+                </p>
+            {% endif %}
+
+            {% if backup_status.exists %}
+                <dl class="metadata">
+                    <div class="metadata-item">
+                        <dt class="metadata-label">
+                            Number of backups
+                        </dt>
+
+                        <dd>
+                            {{ backup_status.count }}
+                        </dd>
+                    </div>
+
+                    <div class="metadata-item">
+                        <dt class="metadata-label">
+                            Newest backup
+                        </dt>
+
+                        <dd>
+                            <code>
+                                {{ backup_status.latest_file_name }}
+                            </code>
+                        </dd>
+                    </div>
+
+                    <div class="metadata-item">
+                        <dt class="metadata-label">
+                            Created
+                        </dt>
+
+                        <dd>
+                            {{
+                                backup_status.latest_modified.strftime(
+                                    "%Y-%m-%d %H:%M:%S"
+                                )
+                            }}
+                        </dd>
+                    </div>
+
+                    <div class="metadata-item">
+                        <dt class="metadata-label">
+                            Size
+                        </dt>
+
+                        <dd>
+                            {{ backup_status.latest_size_kib }} KiB
+                        </dd>
+                    </div>
+                </dl>
+            {% else %}
+                <div class="empty-state">
+                    <h3>
+                        No database backups yet
+                    </h3>
+
+                    <p>
+                        No database backups are available yet.
+                    </p>
+
+                    <p>
+                        Create one manually below or allow the normal
+                        startup backup process to create one when
+                        required.
+                    </p>
+                </div>
+            {% endif %}
+
+            <form
+                method="post"
+                action="{{ url_for(
+                    'settings.create_manual_backup'
+                ) }}"
+            >
+                <input
+                    type="hidden"
+                    name="_csrf_token"
+                    value="{{ csrf_token() }}"
+                >
+
+                <div class="actions">
+                    <button type="submit">
+                        Create backup now
+                    </button>
+                </div>
+            </form>
+
+            <p class="form-help">
+                Backup files are stored internally by the application
+                and remain separate from portable JSON exports.
+            </p>
+        </section>
+
+        <section
+            class="card"
+            aria-labelledby="storage-security-heading"
+        >
+            <div class="card__header">
+                <div>
+                    <h2 id="storage-security-heading">
+                        Storage and security
+                    </h2>
+
+                    <p class="card__description">
+                        Local credentials and application data remain
+                        separate from the program files.
+                    </p>
+                </div>
+            </div>
+
+            <div class="grid grid--3">
+                <article class="card card--compact">
+                    <h3>
+                        API key encryption
+                    </h3>
+
+                    <p>
+                        The locally stored Riot API key is encrypted
+                        with Windows DPAPI before it is written to
+                        disk.
+                    </p>
+                </article>
+
+                <article class="card card--compact">
+                    <h3>
+                        Backup isolation
+                    </h3>
+
+                    <p>
+                        The Riot API key is not included in the
+                        database, database backups, or portable
+                        JSON exports.
+                    </p>
+                </article>
+
+                <article class="card card--compact">
+                    <h3>
+                        Windows user scope
+                    </h3>
+
+                    <p>
+                        A new Riot API key must be entered after
+                        moving the application to another Windows
+                        user or computer.
+                    </p>
+                </article>
+            </div>
+        </section>
+
+        <section
+            class="card"
+            aria-labelledby="product-information-heading"
+        >
+            <div class="card__header">
+                <div>
+                    <h2 id="product-information-heading">
+                        Product information
+                    </h2>
+                </div>
+            </div>
+
+            <dl class="metadata">
+                <div class="metadata-item">
+                    <dt class="metadata-label">
+                        Product
+                    </dt>
+
+                    <dd>
+                        {{ config["RELEASE_NAME"] }}
+                    </dd>
+                </div>
+
+                <div class="metadata-item">
+                    <dt class="metadata-label">
+                        Application version
+                    </dt>
+
+                    <dd>
+                        {{ config["APPLICATION_VERSION"] }}
+                    </dd>
+                </div>
+            </dl>
+        </section>
+
+        {% if
+            config.get(
+                "APPLICATION_SHUTDOWN_AVAILABLE",
+                false
+            )
+        %}
+            <section
+                class="card card--danger"
+                aria-labelledby="shutdown-heading"
+            >
+                <div class="card__header">
+                    <div>
+                        <h2 id="shutdown-heading">
+                            Shut down the application
+                        </h2>
+
+                        <p class="card__description">
+                            Shut down League Mastery Tracker and the
+                            local server in a controlled manner.
+                        </p>
+                    </div>
+                </div>
+
+                <form
+                    method="post"
+                    action="/application/shutdown"
+                    onsubmit="
+                        return confirm(
+                            'Are you sure you want to shut down '
+                            + 'League Mastery Tracker?'
+                        );
+                    "
+                >
+                    <input
+                        type="hidden"
+                        name="_csrf_token"
+                        value="{{ csrf_token() }}"
+                    >
+
+                    <div class="actions">
+                        <button
+                            class="button-danger"
+                            type="submit"
+                        >
+                            Shut down League Mastery Tracker
+                        </button>
+                    </div>
+                </form>
+            </section>
+        {% endif %}
+
+        <section
+            class="card"
+            aria-label="Legal information"
+        >
+            <div class="card__header">
+                <div>
+                    <h2>Legal information</h2>
+
+                    <p class="card__description">
+                        Riot Games attribution and information about
+                        the champion reference assets used by the
+                        application.
+                    </p>
+                </div>
+            </div>
+
+            <p>
+                {{ riot_legal_notice.boilerplate }}
+            </p>
+
+            <dl class="metadata">
+                <div class="metadata-item">
+                    <dt class="metadata-label">
+                        Source of champion data and graphical assets
+                    </dt>
+
+                    <dd>
+                        {{ riot_legal_notice.asset_source }}
+                    </dd>
+                </div>
+            </dl>
+
+            <p>
+                {{ riot_legal_notice.asset_explanation }}
+            </p>
+
+            <div class="actions">
+                <a
+                    class="button button-secondary"
+                    href="{{ riot_legal_notice.policy_url }}"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                >
+                    Riot Games General Policies
+                </a>
+
+                <a
+                    class="button button-secondary"
+                    href="{{ riot_legal_notice.data_dragon_url }}"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                >
+                    Riot Games Data Dragon documentation
+                </a>
+            </div>
+        </section>
+    </div>
+{% endblock %}

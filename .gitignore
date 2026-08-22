@@ -1,0 +1,42 @@
+# Python virtual environments
+.venv/
+venv/
+
+# Python-generated files
+__pycache__/
+*.py[cod]
+
+# Test and coverage output
+.pytest_cache/
+.coverage
+htmlcov/
+application-control-test-output.txt
+full-test-output.txt
+*-test-output.txt
+
+# PyInstaller-generated build output
+build/
+dist/
+
+# Local application data
+data/database/
+data/configuration/
+data/backups/
+data/reference/
+
+# Flask local instance data
+instance/
+
+# Environment variables and secrets
+.env
+.env.*
+
+# Temporary project-review and structure files
+LeagueMasteryTracker-review/
+LeagueMasteryTracker-review.zip
+project_structure.txt
+project_tree.txt
+
+# Operating-system files
+.DS_Store
+Thumbs.db
