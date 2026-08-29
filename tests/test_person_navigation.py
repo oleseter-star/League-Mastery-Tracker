@@ -1,3 +1,4 @@
+import re
 import unittest
 from pathlib import Path
 
@@ -124,6 +125,145 @@ class PersonNavigationTestCase(unittest.TestCase):
             html.split()
         )
 
+    def get_primary_navigation_links(
+        self,
+        html,
+    ):
+        """
+        Return the actual anchors inside the primary navigation.
+        """
+
+        navigation_match = re.search(
+            r'<nav\b[^>]*aria-label="Main navigation"[^>]*>'
+            r'(?P<content>.*?)</nav>',
+            html,
+            flags=re.DOTALL,
+        )
+
+        self.assertIsNotNone(
+            navigation_match
+        )
+
+        links = []
+
+        for match in re.finditer(
+                r'<a\b(?P<attributes>[^>]*)>'
+                r'(?P<content>.*?)</a>',
+                navigation_match.group(
+                    "content"
+                ),
+                flags=re.DOTALL,
+        ):
+            attributes = match.group(
+                "attributes"
+            )
+
+            def attribute_value(name):
+                attribute_match = re.search(
+                    rf'\b{re.escape(name)}\s*=\s*'
+                    r'(?P<quote>["\'])'
+                    r'(?P<value>.*?)'
+                    r'(?P=quote)',
+                    attributes,
+                    flags=re.DOTALL,
+                )
+
+                if attribute_match is None:
+                    if re.search(
+                        rf'\b{re.escape(name)}\b',
+                        attributes,
+                    ):
+                        return ""
+
+                    return None
+
+                return attribute_match.group(
+                    "value"
+                )
+
+            links.append(
+                {
+                    "attributes": attributes,
+                    "label": " ".join(
+                        match.group(
+                            "content"
+                        ).split()
+                    ),
+                    "href": attribute_value(
+                        "href"
+                    ),
+                    "aria_current": attribute_value(
+                        "aria-current"
+                    ),
+                }
+            )
+
+        return links
+
+    def assert_persons_navigation_is_current(
+        self,
+        html,
+    ):
+        links = self.get_primary_navigation_links(
+            html
+        )
+
+        current_links = [
+            link
+            for link in links
+            if re.search(
+                r'\baria-current\s*=\s*"page"',
+                link["attributes"],
+            )
+        ]
+
+        self.assertEqual(
+            len(current_links),
+            1,
+        )
+
+        self.assertEqual(
+            current_links[0]["label"],
+            "Persons",
+        )
+
+        for link in links:
+            if link["label"] != "Persons":
+                self.assertNotRegex(
+                    link["attributes"],
+                    r"\baria-current\b",
+                )
+
+        self.assertEqual(
+            [
+                {
+                    "label": link["label"],
+                    "href": link["href"],
+                    "aria_current": link[
+                        "aria_current"
+                    ],
+                }
+                for link in links
+            ],
+            [
+                {
+                    "label": "Dashboard",
+                    "href": "/",
+                    "aria_current": None,
+                },
+                {
+                    "label": "Persons",
+                    "href": "/persons",
+                    "aria_current": "page",
+                },
+                {
+                    "label": "Settings",
+                    "href": "/settings",
+                    "aria_current": None,
+                },
+            ],
+        )
+
     def test_person_list_has_dashboard_navigation_and_sorted_person_links(
         self,
     ):
@@ -245,6 +385,43 @@ class PersonNavigationTestCase(unittest.TestCase):
         self.assertIn(
             "> All persons </a>",
             normalized_html,
+        )
+
+    def test_person_list_and_detail_mark_persons_navigation_current(
+        self,
+    ):
+        """
+        Both Persons pages should identify Persons as the section.
+        """
+
+        list_response = self.client.get(
+            "/persons"
+        )
+
+        self.assertEqual(
+            list_response.status_code,
+            200,
+        )
+
+        self.assert_persons_navigation_is_current(
+            list_response.get_data(
+                as_text=True
+            )
+        )
+
+        detail_response = self.client.get(
+            f"/persons/{self.alpha_person.id}"
+        )
+
+        self.assertEqual(
+            detail_response.status_code,
+            200,
+        )
+
+        self.assert_persons_navigation_is_current(
+            detail_response.get_data(
+                as_text=True
+            )
         )
 
     def test_person_administration_forms_remain_person_scoped_and_csrf_protected(

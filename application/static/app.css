@@ -364,6 +364,13 @@ code {
 }
 
 
+.main-nav a[aria-current="page"] {
+    color: var(--color-text);
+    font-weight: var(--font-weight-semibold);
+    text-decoration: underline;
+}
+
+
 .main-nav a:hover {
     background: var(--color-surface);
     color: var(--color-text);

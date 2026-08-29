@@ -30,6 +30,25 @@
 </head>
 
 <body>
+    {% set primary_navigation_sections = {
+        "Dashboard": ["home", "champions"],
+        "Persons": ["persons"],
+        "Settings": [
+            "settings",
+            "json_export",
+            "json_import",
+            "database_restore",
+        ],
+    } %}
+
+    {% set current_primary_navigation = namespace(section=none) %}
+
+    {% for section, blueprints in primary_navigation_sections.items() %}
+        {% if request.blueprint in blueprints %}
+            {% set current_primary_navigation.section = section %}
+        {% endif %}
+    {% endfor %}
+
     <a
         class="skip-link"
         href="#main-content"
@@ -60,15 +79,30 @@
                 class="main-nav"
                 aria-label="Main navigation"
             >
-                <a href="/">
+                <a
+                    href="/"
+                    {% if current_primary_navigation.section == "Dashboard" %}
+                        aria-current="page"
+                    {% endif %}
+                >
                     Dashboard
                 </a>
 
-                <a href="/persons">
+                <a
+                    href="/persons"
+                    {% if current_primary_navigation.section == "Persons" %}
+                        aria-current="page"
+                    {% endif %}
+                >
                     Persons
                 </a>
 
-                <a href="/settings">
+                <a
+                    href="/settings"
+                    {% if current_primary_navigation.section == "Settings" %}
+                        aria-current="page"
+                    {% endif %}
+                >
                     Settings
                 </a>
             </nav>

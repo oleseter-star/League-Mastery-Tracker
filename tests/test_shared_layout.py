@@ -2,7 +2,7 @@ import re
 import unittest
 from pathlib import Path
 
-from flask import Flask, render_template
+from flask import Blueprint, Flask, render_template
 
 from application.config import Config
 from application.routes.persons import persons_bp
@@ -188,6 +188,124 @@ class SharedLayoutTests(
                 "persons.html",
                 persons=[],
             )
+
+    def _render_navigation_page(
+        self,
+        blueprint_name,
+    ):
+        app = Flask(
+            __name__,
+            template_folder=str(
+                self.TEMPLATE_DIR
+            ),
+        )
+
+        app.config.from_object(
+            Config
+        )
+
+        blueprint = Blueprint(
+            blueprint_name,
+            __name__,
+        )
+
+        route_path = (
+            f"/{blueprint_name}-navigation-test"
+        )
+
+        @blueprint.get(route_path)
+        def navigation_page():
+            return render_template(
+                "base.html"
+            )
+
+        app.register_blueprint(
+            blueprint
+        )
+
+        response = app.test_client().get(
+            route_path
+        )
+
+        self.assertEqual(
+            response.status_code,
+            200,
+        )
+
+        return response.get_data(
+            as_text=True
+        )
+
+    def _get_primary_navigation_links(
+        self,
+        html,
+    ):
+        navigation_match = re.search(
+            r'<nav\b[^>]*aria-label="Main navigation"[^>]*>'
+            r'(?P<content>.*?)</nav>',
+            html,
+            flags=re.DOTALL,
+        )
+
+        self.assertIsNotNone(
+            navigation_match,
+        )
+
+        links = []
+
+        for match in re.finditer(
+                r'<a\b(?P<attributes>[^>]*)>'
+                r'(?P<content>.*?)</a>',
+                navigation_match.group(
+                    "content"
+                ),
+                flags=re.DOTALL,
+        ):
+            attributes = match.group(
+                "attributes"
+            )
+
+            def attribute_value(name):
+                attribute_match = re.search(
+                    rf'\b{re.escape(name)}\s*=\s*'
+                    r'(?P<quote>["\'])'
+                    r'(?P<value>.*?)'
+                    r'(?P=quote)',
+                    attributes,
+                    flags=re.DOTALL,
+                )
+
+                if attribute_match is None:
+                    if re.search(
+                        rf'\b{re.escape(name)}\b',
+                        attributes,
+                    ):
+                        return ""
+
+                    return None
+
+                return attribute_match.group(
+                    "value"
+                )
+
+            links.append(
+                {
+                    "attributes": attributes,
+                    "label": " ".join(
+                        match.group(
+                            "content"
+                        ).split()
+                    ),
+                    "href": attribute_value(
+                        "href"
+                    ),
+                    "aria_current": attribute_value(
+                        "aria-current"
+                    ),
+                }
+            )
+
+        return links
 
     def test_application_identity_configuration_is_canonical(self):
         """
@@ -477,6 +595,111 @@ class SharedLayoutTests(
             "Settings",
             content,
         )
+
+    def test_primary_navigation_marks_current_blueprint_family(self):
+        """
+        Each normal page should expose one current navigation section.
+        """
+
+        expected_current_links = {
+            "home": ("Dashboard", "/"),
+            "champions": ("Dashboard", "/"),
+            "persons": ("Persons", "/persons"),
+            "settings": ("Settings", "/settings"),
+            "json_export": ("Settings", "/settings"),
+            "json_import": ("Settings", "/settings"),
+            "database_restore": ("Settings", "/settings"),
+        }
+
+        for blueprint_name, expected_current_link in (
+            expected_current_links.items()
+        ):
+            with self.subTest(
+                blueprint=blueprint_name
+            ):
+                links = (
+                    self._get_primary_navigation_links(
+                        self._render_navigation_page(
+                            blueprint_name
+                        )
+                    )
+                )
+
+                self.assertEqual(
+                    [
+                        link["label"]
+                        for link in links
+                    ],
+                    [
+                        "Dashboard",
+                        "Persons",
+                        "Settings",
+                    ],
+                )
+
+                expected_links = [
+                    {
+                        "label": label,
+                        "href": href,
+                        "aria_current": (
+                            "page"
+                            if (label, href)
+                            == expected_current_link
+                            else None
+                        ),
+                    }
+                    for label, href in (
+                        ("Dashboard", "/"),
+                        ("Persons", "/persons"),
+                        ("Settings", "/settings"),
+                    )
+                ]
+
+                self.assertEqual(
+                    [
+                        {
+                            "label": link["label"],
+                            "href": link["href"],
+                            "aria_current": link[
+                                "aria_current"
+                            ],
+                        }
+                        for link in links
+                    ],
+                    expected_links,
+                )
+
+                current_links = [
+                    link
+                    for link in links
+                    if re.search(
+                        r'\baria-current\s*=\s*"page"',
+                        link["attributes"],
+                    )
+                ]
+
+                self.assertEqual(
+                    len(current_links),
+                    1,
+                )
+
+                self.assertEqual(
+                    (
+                        current_links[0]["label"],
+                        current_links[0]["href"],
+                    ),
+                    expected_current_link,
+                )
+
+                for link in links:
+                    if (
+                        link["label"],
+                        link["href"],
+                    ) != expected_current_link:
+                        self.assertNotRegex(
+                            link["attributes"],
+                            r"\baria-current\b",
+                        )
 
     def test_base_template_has_product_identity(self):
         """
@@ -907,6 +1130,36 @@ class SharedLayoutTests(
         self.assertIn(
             "--color-focus:",
             content,
+        )
+
+    def test_stylesheet_marks_current_primary_navigation_semantically(self):
+        """
+        Current navigation should remain visible without color alone.
+        """
+
+        declarations = (
+            self._get_stylesheet_rule(
+                '.main-nav a[aria-current="page"]'
+            )
+        )
+
+        self.assertIsNotNone(
+            declarations
+        )
+
+        self.assertRegex(
+            declarations,
+            r"text-decoration\s*:\s*underline\s*;",
+        )
+
+        self.assertIn(
+            "var(--color-text)",
+            declarations,
+        )
+
+        self.assertIn(
+            "var(--font-weight-semibold)",
+            declarations,
         )
 
     def test_stylesheet_has_responsive_contract(self):
