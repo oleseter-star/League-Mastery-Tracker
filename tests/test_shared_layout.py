@@ -131,9 +131,9 @@ class SharedLayoutTests(
             ),
         },
         "missing_champions.html": {
-            "title": "Missing champion data",
+            "title": "Missing metadata",
             "eyebrow": "Reference data",
-            "heading": "Missing champion data",
+            "heading": "Missing metadata",
             "description": (
                 "Add names for champions that are not yet included "
                 "in the local Data Dragon reference data."
@@ -783,6 +783,17 @@ class SharedLayoutTests(
                     ),
                 )
 
+                if template_name == "missing_champions.html":
+                    self.assertNotEqual(
+                        " ".join(
+                            titles[0].split()
+                        ),
+                        (
+                            "Missing champion data · "
+                            f"{self.PRODUCT_NAME}"
+                        ),
+                    )
+
     def test_base_template_declares_shared_page_header_blocks(self):
         """
         The base should expose all page-specific header extension points.
@@ -952,6 +963,30 @@ class SharedLayoutTests(
                     self.assertIn(
                         visible_text,
                         normalized_header,
+                    )
+
+                if template_name == "missing_champions.html":
+                    page_heading_labels = [
+                        " ".join(
+                            label.split()
+                        )
+                        for label in re.findall(
+                            r"<h1>(?P<label>.*?)</h1>",
+                            header,
+                            flags=re.DOTALL,
+                        )
+                    ]
+
+                    self.assertEqual(
+                        page_heading_labels,
+                        [
+                            "Missing metadata",
+                        ],
+                    )
+
+                    self.assertNotIn(
+                        "Missing champion data",
+                        page_heading_labels,
                     )
 
                 rendered_actions = re.findall(

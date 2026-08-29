@@ -1,4 +1,5 @@
 import importlib
+import re
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -294,6 +295,25 @@ class HomeChampionReferenceStatusTemplateTests(
             as_text=True
         )
 
+    def _get_reference_section(
+        self,
+        html,
+    ):
+        section_match = re.search(
+            r'<section\b[^>]*aria-labelledby="reference-heading"'
+            r'[^>]*>(?P<section>.*?)</section>',
+            html,
+            flags=re.DOTALL,
+        )
+
+        self.assertIsNotNone(
+            section_match,
+        )
+
+        return section_match.group(
+            "section"
+        )
+
     def test_reference_status_section_is_visible(
         self
     ):
@@ -405,6 +425,25 @@ class HomeChampionReferenceStatusTemplateTests(
             )
         )
 
+        reference_section = (
+            self._get_reference_section(
+                html
+            )
+        )
+
+        status_messages = [
+            " ".join(
+                message.split()
+            )
+            for message in re.findall(
+                r'<p\b[^>]*class="notice notice-warning"'
+                r'[^>]*role="status"[^>]*>'
+                r'(?P<message>.*?)</p>',
+                reference_section,
+                flags=re.DOTALL,
+            )
+        ]
+
         self.assertIn(
             "Database only",
             html,
@@ -416,6 +455,22 @@ class HomeChampionReferenceStatusTemplateTests(
                 "remains available."
             ),
             html,
+        )
+
+        self.assertIn(
+            (
+                "The reference data is unavailable. "
+                "Existing database content remains available."
+            ),
+            status_messages,
+        )
+
+        self.assertNotIn(
+            (
+                "The reference dataset is unavailable. "
+                "Existing database content remains available."
+            ),
+            status_messages,
         )
 
         self.assertIn(
@@ -467,6 +522,53 @@ class HomeChampionReferenceStatusTemplateTests(
     ):
         html = self._get_home_html(
             self._build_status()
+        )
+
+        reference_section = (
+            self._get_reference_section(
+                html
+            )
+        )
+
+        update_articles = [
+            article
+            for article in re.findall(
+                r'<article\b[^>]*>(?P<article>.*?)</article>',
+                reference_section,
+                flags=re.DOTALL,
+            )
+            if (
+                "/dashboard/reference-data/refresh"
+                in article
+            )
+        ]
+
+        self.assertEqual(
+            len(update_articles),
+            1,
+        )
+
+        update_heading_labels = [
+            " ".join(
+                label.split()
+            )
+            for label in re.findall(
+                r"<h3>(?P<label>.*?)</h3>",
+                update_articles[0],
+                flags=re.DOTALL,
+            )
+        ]
+
+        self.assertEqual(
+            update_heading_labels,
+            [
+                "Reference data update",
+            ],
+        )
+
+        self.assertNotIn(
+            "Reference update",
+            update_heading_labels,
         )
 
         self.assertIn(

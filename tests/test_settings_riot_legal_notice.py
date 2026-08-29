@@ -1,9 +1,11 @@
 import importlib
+import re
 import unittest
+from html import unescape
 from pathlib import Path
 from unittest.mock import patch
 
-from flask import Flask
+from flask import Flask, render_template
 
 
 settings_module = importlib.import_module(
@@ -15,16 +17,6 @@ class SettingsRiotLegalNoticeTests(
     unittest.TestCase
 ):
     def setUp(self):
-        self.app = Flask(
-            __name__
-        )
-
-        self.app.config.update(
-            TESTING=True,
-            SECRET_KEY="test-secret",
-            STARTUP_BACKUP_ERROR=None,
-        )
-
         self.template_file = (
             Path(__file__)
             .resolve()
@@ -33,6 +25,29 @@ class SettingsRiotLegalNoticeTests(
             / "application"
             / "templates"
             / "settings.html"
+        )
+
+        self.app = Flask(
+            __name__,
+            template_folder=str(
+                self.template_file.parent
+            ),
+        )
+
+        self.app.config.update(
+            TESTING=True,
+            SECRET_KEY="test-secret",
+            STARTUP_BACKUP_ERROR=None,
+        )
+
+        self.app.jinja_env.globals[
+            "csrf_token"
+        ] = lambda: "settings-legal-test-token"
+
+        self.app.jinja_env.globals[
+            "url_for"
+        ] = lambda endpoint, **values: (
+            f"/{endpoint}"
         )
 
         self.template_content = (
@@ -66,6 +81,45 @@ class SettingsRiotLegalNoticeTests(
                 "docs/lol"
             ),
         }
+
+    def _render_settings_template(self):
+        with self.app.test_request_context(
+            "/settings"
+        ):
+            return render_template(
+                "settings.html",
+                api_key_status={
+                    "configured": False,
+                    "source": None,
+                    "masked_key": None,
+                    "error": None,
+                },
+                backup_status={
+                    "exists": False,
+                    "count": 0,
+                    "latest_file_name": None,
+                    "latest_modified": None,
+                    "latest_size_kib": None,
+                },
+                startup_backup_error=None,
+                riot_legal_notice=self.notice,
+            )
+
+    def _get_legal_section(self):
+        section_match = re.search(
+            r'<section\b[^>]*aria-label="Legal information"'
+            r'[^>]*>(?P<section>.*?)</section>',
+            self._render_settings_template(),
+            flags=re.DOTALL,
+        )
+
+        self.assertIsNotNone(
+            section_match,
+        )
+
+        return section_match.group(
+            "section"
+        )
 
     def test_settings_route_passes_legal_notice_to_template(
         self,
@@ -151,6 +205,28 @@ class SettingsRiotLegalNoticeTests(
             self.template_content,
         )
 
+        rendered_paragraphs = [
+            " ".join(
+                unescape(
+                    re.sub(
+                        r"<[^>]+>",
+                        "",
+                        paragraph,
+                    )
+                ).split()
+            )
+            for paragraph in re.findall(
+                r"<p\b[^>]*>(?P<paragraph>.*?)</p>",
+                self._get_legal_section(),
+                flags=re.DOTALL,
+            )
+        ]
+
+        self.assertIn(
+            self.notice["boilerplate"],
+            rendered_paragraphs,
+        )
+
     def test_template_displays_data_dragon_attribution(
         self,
     ):
@@ -161,6 +237,34 @@ class SettingsRiotLegalNoticeTests(
                 "}}"
             ),
             self.template_content,
+        )
+
+        attribution_labels = [
+            " ".join(
+                label.split()
+            )
+            for label in re.findall(
+                r'<dt\b[^>]*class="metadata-label"[^>]*>'
+                r'(?P<label>.*?)</dt>',
+                self._get_legal_section(),
+                flags=re.DOTALL,
+            )
+        ]
+
+        self.assertIn(
+            (
+                "Source of champion reference data "
+                "and graphical assets"
+            ),
+            attribution_labels,
+        )
+
+        self.assertNotIn(
+            (
+                "Source of champion data "
+                "and graphical assets"
+            ),
+            attribution_labels,
         )
 
         self.assertIn(
