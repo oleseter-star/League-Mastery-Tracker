@@ -504,6 +504,75 @@ class SharedLayoutTests(
             self.WINDOWS_EXECUTABLE_NAME,
         )
 
+    def test_dashboard_uses_champion_mastery_synchronization_copy(self):
+        """
+        Dashboard mastery controls should use synchronization terms.
+        """
+
+        html = self._render_shared_page(
+            "home.html"
+        )
+
+        synchronization_sections = re.findall(
+            r'<section\b[^>]*aria-labelledby="synchronize-heading"'
+            r'[^>]*>(?P<section>.*?)</section>',
+            html,
+            flags=re.DOTALL,
+        )
+
+        self.assertEqual(
+            len(synchronization_sections),
+            1,
+        )
+
+        section = synchronization_sections[0]
+
+        heading_labels = [
+            " ".join(
+                label.split()
+            )
+            for label in re.findall(
+                r'<h2\b[^>]*id="synchronize-heading"[^>]*>'
+                r'(?P<label>.*?)</h2>',
+                section,
+                flags=re.DOTALL,
+            )
+        ]
+
+        self.assertEqual(
+            heading_labels,
+            [
+                "Synchronize Champion Mastery",
+            ],
+        )
+
+        self.assertNotIn(
+            "Synchronize mastery",
+            heading_labels,
+        )
+
+        normalized_section = " ".join(
+            section.split()
+        )
+
+        self.assertIn(
+            (
+                "Synchronize locally stored Champion Mastery "
+                "through the existing manual synchronization "
+                "actions."
+            ),
+            normalized_section,
+        )
+
+        self.assertNotIn(
+            (
+                "Refresh locally stored Champion Mastery "
+                "through the existing manual synchronization "
+                "actions."
+            ),
+            normalized_section,
+        )
+
     def test_application_version_uses_three_part_semantic_version(self):
         """
         The product release version should use major.minor.patch form.
