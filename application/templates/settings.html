@@ -1,36 +1,32 @@
 {% extends "base.html" %}
 
 {% block title %}
-    Settings | League Mastery Tracker
+    Settings
+{% endblock %}
+
+{% block page_eyebrow %}
+    Administration
+{% endblock %}
+
+{% block page_heading %}
+    Settings
+{% endblock %}
+
+{% block page_description %}
+    Manage the Riot API key, portable data, database
+    backups, application storage, and controlled shutdown.
+{% endblock %}
+
+{% block page_actions %}
+    <a
+        class="button button-secondary"
+        href="/"
+    >
+        Back to Dashboard
+    </a>
 {% endblock %}
 
 {% block content %}
-    <header class="page-header">
-        <div class="page-header__content">
-            <p class="page-header__eyebrow">
-                Administration
-            </p>
-
-            <h1>
-                Settings
-            </h1>
-
-            <p class="page-header__description">
-                Manage the Riot API key, portable data, database
-                backups, application storage, and controlled shutdown.
-            </p>
-        </div>
-
-        <div class="page-header__actions">
-            <a
-                class="button button-secondary"
-                href="/"
-            >
-                Back to Dashboard
-            </a>
-        </div>
-    </header>
-
     <div class="section-stack">
         <section
             class="card card--raised"

@@ -1,27 +1,25 @@
 {% extends "base.html" %}
 
 {% block title %}
-    Persons · League Mastery Tracker
+    Persons
 {% endblock %}
 
+{% block page_eyebrow %}
+    Management
+{% endblock %}
+
+{% block page_heading %}
+    Persons
+{% endblock %}
+
+{% block page_description %}
+    Create local persons and open them to manage
+    connected Riot accounts and Champion Mastery.
+{% endblock %}
+
+{% block page_actions %}{% endblock %}
+
 {% block content %}
-    <header class="page-header">
-        <div class="page-header__content">
-            <p class="page-header__eyebrow">
-                Management
-            </p>
-
-            <h1>
-                Persons
-            </h1>
-
-            <p class="page-header__description">
-                Create local persons and open them to manage
-                connected Riot accounts and Champion Mastery.
-            </p>
-        </div>
-    </header>
-
     <div class="section-stack">
         <section
             class="card"

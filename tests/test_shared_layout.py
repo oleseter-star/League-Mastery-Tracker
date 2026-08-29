@@ -45,6 +45,105 @@ class SharedLayoutTests(
         "missing_champions.html",
     )
 
+    SHARED_PAGE_EXPECTATIONS = {
+        "home.html": {
+            "title": "Dashboard",
+            "eyebrow": "League Mastery Tracker",
+            "heading": "Dashboard",
+            "description": (
+                "Review persons, synchronize Champion Mastery, "
+                "and check the local champion reference data used "
+                "by the application."
+            ),
+            "actions": (
+                ("/persons", "Manage persons"),
+                ("/settings", "Settings"),
+            ),
+        },
+        "persons.html": {
+            "title": "Persons",
+            "eyebrow": "Management",
+            "heading": "Persons",
+            "description": (
+                "Create local persons and open them to manage "
+                "connected Riot accounts and Champion Mastery."
+            ),
+            "actions": (),
+        },
+        "person_detail.html": {
+            "title": "Shared Layout Person",
+            "eyebrow": "Person",
+            "heading": "Shared Layout Person",
+            "description": (
+                "Review connected Riot accounts and combined "
+                "Champion Mastery for this person."
+            ),
+            "actions": (
+                ("/persons", "All persons"),
+            ),
+        },
+        "settings.html": {
+            "title": "Settings",
+            "eyebrow": "Administration",
+            "heading": "Settings",
+            "description": (
+                "Manage the Riot API key, portable data, database "
+                "backups, application storage, and controlled shutdown."
+            ),
+            "actions": (
+                ("/", "Back to Dashboard"),
+            ),
+        },
+        "json_export.html": {
+            "title": "JSON export",
+            "eyebrow": "Portable data",
+            "heading": "JSON export",
+            "description": (
+                "Create one portable JSON file containing the "
+                "application data."
+            ),
+            "actions": (
+                ("/settings", "Back to Settings"),
+            ),
+        },
+        "json_import.html": {
+            "title": "JSON import",
+            "eyebrow": "Portable data",
+            "heading": "Import portable JSON data",
+            "description": (
+                "Validate and preview a League Mastery Tracker export "
+                "before any database changes are allowed."
+            ),
+            "actions": (
+                ("/settings", "Back to Settings"),
+            ),
+        },
+        "database_restore.html": {
+            "title": "Database restore",
+            "eyebrow": "Database backup",
+            "heading": "Database restore",
+            "description": (
+                "Restore the application database from an "
+                "internally created backup."
+            ),
+            "actions": (
+                ("/settings", "Back to Settings"),
+            ),
+        },
+        "missing_champions.html": {
+            "title": "Missing champion data",
+            "eyebrow": "Reference data",
+            "heading": "Missing champion data",
+            "description": (
+                "Add names for champions that are not yet included "
+                "in the local Data Dragon reference data."
+            ),
+            "actions": (
+                ("/", "Back to Dashboard"),
+            ),
+        },
+    }
+
     PRODUCT_NAME = (
         "League Mastery Tracker"
     )
@@ -235,6 +334,79 @@ class SharedLayoutTests(
         return response.get_data(
             as_text=True
         )
+
+    @classmethod
+    def _render_shared_page(
+        cls,
+        template_name,
+    ):
+        app = Flask(
+            __name__,
+            template_folder=str(
+                cls.TEMPLATE_DIR
+            ),
+        )
+
+        app.config.from_object(
+            Config
+        )
+
+        app.jinja_env.globals[
+            "csrf_token"
+        ] = lambda: "shared-layout-test-token"
+
+        app.jinja_env.globals[
+            "url_for"
+        ] = lambda endpoint, **values: (
+            f"/{endpoint}"
+        )
+
+        context = {
+            "persons": [],
+            "person_count": 0,
+            "champion_reference_status": {},
+            "person": {
+                "display_name": (
+                    "Shared Layout Person"
+                ),
+                "id": 1,
+            },
+            "total_mastery": 0,
+            "riot_accounts": [],
+            "top_champions": [],
+            "champions": [],
+            "move_target_persons": [],
+            "platform_regions": [],
+            "api_key_status": {},
+            "backup_status": {},
+            "startup_backup_error": None,
+            "riot_legal_notice": {
+                "boilerplate": "Legal boilerplate",
+                "asset_source": "Asset source",
+                "asset_explanation": (
+                    "Asset explanation"
+                ),
+                "policy_url": "/policy",
+                "data_dragon_url": (
+                    "/data-dragon"
+                ),
+            },
+            "export_error": "Export unavailable",
+            "export_summary": None,
+            "prepared_import": None,
+            "max_file_size_mib": 1,
+            "startup_restore_result": None,
+            "pending_restore_error": None,
+            "pending_restore": None,
+            "restore_candidates": [],
+            "restore_candidates_error": None,
+        }
+
+        with app.test_request_context("/"):
+            return render_template(
+                template_name,
+                **context,
+            )
 
     def _get_primary_navigation_links(
         self,
@@ -432,7 +604,7 @@ class SharedLayoutTests(
 
     def test_shared_pages_define_product_title(self):
         """
-        Every shared page title should identify the product.
+        Every shared page should supply only its page title portion.
         """
 
         for template_name in (
@@ -450,9 +622,285 @@ class SharedLayoutTests(
                     content,
                 )
 
-                self.assertIn(
+                self.assertNotIn(
                     self.PRODUCT_NAME,
-                    content,
+                    re.search(
+                        r"{% block title %}"
+                        r"(?P<title>.*?)"
+                        r"{% endblock %}",
+                        content,
+                        flags=re.DOTALL,
+                    ).group("title"),
+                )
+
+    def test_base_template_owns_canonical_document_title(self):
+        """
+        The base should append one canonical product suffix.
+        """
+
+        content = self._read_template(
+            "base.html"
+        )
+
+        title_element = re.search(
+            r"<title>(?P<content>.*?)</title>",
+            content,
+            flags=re.DOTALL,
+        )
+
+        self.assertIsNotNone(
+            title_element
+        )
+
+        normalized_title = " ".join(
+            title_element.group(
+                "content"
+            ).split()
+        )
+
+        self.assertEqual(
+            normalized_title.count(
+                "{% block title %}"
+            ),
+            1,
+        )
+
+        self.assertEqual(
+            normalized_title.count(
+                'config["PRODUCT_NAME"]'
+            ),
+            1,
+        )
+
+        self.assertIn(
+            "{% endblock %} · "
+            '{{ config["PRODUCT_NAME"] }}',
+            normalized_title,
+        )
+
+    def test_rendered_shared_pages_use_canonical_titles(self):
+        """
+        Every normal page should render one canonical document title.
+        """
+
+        for template_name, expected in (
+            self.SHARED_PAGE_EXPECTATIONS.items()
+        ):
+            with self.subTest(
+                template=template_name
+            ):
+                html = self._render_shared_page(
+                    template_name
+                )
+
+                titles = re.findall(
+                    r"<title>(?P<title>.*?)</title>",
+                    html,
+                    flags=re.DOTALL,
+                )
+
+                self.assertEqual(
+                    len(titles),
+                    1,
+                )
+
+                self.assertEqual(
+                    " ".join(
+                        titles[0].split()
+                    ),
+                    (
+                        f'{expected["title"]} · '
+                        f"{self.PRODUCT_NAME}"
+                    ),
+                )
+
+    def test_base_template_declares_shared_page_header_blocks(self):
+        """
+        The base should expose all page-specific header extension points.
+        """
+
+        content = self._read_template(
+            "base.html"
+        )
+
+        for block_name in (
+            "page_eyebrow",
+            "page_heading",
+            "page_description",
+            "page_actions",
+        ):
+            with self.subTest(
+                block=block_name
+            ):
+                self.assertEqual(
+                    content.count(
+                        "{% block "
+                        f"{block_name} %}}"
+                    ),
+                    1,
+                )
+
+    def test_base_template_owns_one_page_header_structure(self):
+        """
+        Shared page-header elements should have one base-owned copy.
+        """
+
+        content = self._read_template(
+            "base.html"
+        )
+
+        for structural_markup in (
+            '<header class="page-header">',
+            '<div class="page-header__content">',
+            '<p class="page-header__eyebrow">',
+            "<h1>",
+            '<p class="page-header__description">',
+            '<div class="page-header__actions">',
+        ):
+            with self.subTest(
+                markup=structural_markup
+            ):
+                self.assertEqual(
+                    content.count(
+                        structural_markup
+                    ),
+                    1,
+                )
+
+    def test_shared_pages_override_header_blocks_without_structure(self):
+        """
+        Child templates should provide content, not header wrappers.
+        """
+
+        structural_markup = (
+            '<header class="page-header">',
+            '<div class="page-header__content">',
+            '<p class="page-header__eyebrow">',
+            "<h1>",
+            '<p class="page-header__description">',
+            '<div class="page-header__actions">',
+        )
+
+        for template_name in (
+            self.SHARED_TEMPLATE_NAMES
+        ):
+            with self.subTest(
+                template=template_name
+            ):
+                content = self._read_template(
+                    template_name
+                )
+
+                for block_name in (
+                    "page_eyebrow",
+                    "page_heading",
+                    "page_description",
+                    "page_actions",
+                    "content",
+                ):
+                    self.assertEqual(
+                        content.count(
+                            "{% block "
+                            f"{block_name} %}}"
+                        ),
+                        1,
+                    )
+
+                for markup in structural_markup:
+                    self.assertNotIn(
+                        markup,
+                        content,
+                    )
+
+    def test_rendered_shared_pages_preserve_complete_page_headers(self):
+        """
+        Rendered headers should retain page content and destinations.
+        """
+
+        for template_name, expected in (
+            self.SHARED_PAGE_EXPECTATIONS.items()
+        ):
+            with self.subTest(
+                template=template_name
+            ):
+                html = self._render_shared_page(
+                    template_name
+                )
+
+                headers = re.findall(
+                    r'<header class="page-header">'
+                    r'(?P<header>.*?)</header>',
+                    html,
+                    flags=re.DOTALL,
+                )
+
+                self.assertEqual(
+                    len(headers),
+                    1,
+                )
+
+                header = headers[0]
+
+                self.assertEqual(
+                    header.count(
+                        'class="page-header__eyebrow"'
+                    ),
+                    1,
+                )
+
+                self.assertEqual(
+                    len(re.findall(
+                        r"<h1>.*?</h1>",
+                        header,
+                        flags=re.DOTALL,
+                    )),
+                    1,
+                )
+
+                self.assertEqual(
+                    header.count(
+                        'class="page-header__description"'
+                    ),
+                    1,
+                )
+
+                self.assertEqual(
+                    header.count(
+                        'class="page-header__actions"'
+                    ),
+                    1,
+                )
+
+                normalized_header = " ".join(
+                    header.split()
+                )
+
+                for visible_text in (
+                    expected["eyebrow"],
+                    expected["heading"],
+                    expected["description"],
+                ):
+                    self.assertIn(
+                        visible_text,
+                        normalized_header,
+                    )
+
+                rendered_actions = re.findall(
+                    r'<a\b[^>]*href="(?P<href>[^"]+)"[^>]*>'
+                    r'(?P<label>.*?)</a>',
+                    header,
+                    flags=re.DOTALL,
+                )
+
+                self.assertEqual(
+                    [
+                        (
+                            href,
+                            " ".join(label.split()),
+                        )
+                        for href, label in rendered_actions
+                    ],
+                    list(expected["actions"]),
                 )
 
     def test_base_template_declares_english_document(self):

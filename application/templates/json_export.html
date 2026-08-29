@@ -1,36 +1,32 @@
 {% extends "base.html" %}
 
 {% block title %}
-    JSON export | League Mastery Tracker
+    JSON export
+{% endblock %}
+
+{% block page_eyebrow %}
+    Portable data
+{% endblock %}
+
+{% block page_heading %}
+    JSON export
+{% endblock %}
+
+{% block page_description %}
+    Create one portable JSON file containing the
+    application data.
+{% endblock %}
+
+{% block page_actions %}
+    <a
+        class="button button-secondary"
+        href="/settings"
+    >
+        Back to Settings
+    </a>
 {% endblock %}
 
 {% block content %}
-    <header class="page-header">
-        <div class="page-header__content">
-            <p class="page-header__eyebrow">
-                Portable data
-            </p>
-
-            <h1>
-                JSON export
-            </h1>
-
-            <p class="page-header__description">
-                Create one portable JSON file containing the
-                application data.
-            </p>
-        </div>
-
-        <div class="page-header__actions">
-            <a
-                class="button button-secondary"
-                href="/settings"
-            >
-                Back to Settings
-            </a>
-        </div>
-    </header>
-
     <div class="section-stack">
         {% if export_error %}
             <section

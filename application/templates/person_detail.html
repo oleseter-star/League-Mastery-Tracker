@@ -1,36 +1,32 @@
 {% extends "base.html" %}
 
 {% block title %}
-    {{ person.display_name }} | League Mastery Tracker
+    {{ person.display_name }}
+{% endblock %}
+
+{% block page_eyebrow %}
+    Person
+{% endblock %}
+
+{% block page_heading %}
+    {{ person.display_name }}
+{% endblock %}
+
+{% block page_description %}
+    Review connected Riot accounts and combined
+    Champion Mastery for this person.
+{% endblock %}
+
+{% block page_actions %}
+    <a
+        class="button button-secondary"
+        href="/persons"
+    >
+        All persons
+    </a>
 {% endblock %}
 
 {% block content %}
-    <header class="page-header">
-        <div class="page-header__content">
-            <p class="page-header__eyebrow">
-                Person
-            </p>
-
-            <h1>
-                {{ person.display_name }}
-            </h1>
-
-            <p class="page-header__description">
-                Review connected Riot accounts and combined
-                Champion Mastery for this person.
-            </p>
-        </div>
-
-        <div class="page-header__actions">
-            <a
-                class="button button-secondary"
-                href="/persons"
-            >
-                All persons
-            </a>
-        </div>
-    </header>
-
     <div class="section-stack">
         <section
             class="card card--raised"

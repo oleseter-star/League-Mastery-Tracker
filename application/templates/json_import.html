@@ -1,36 +1,32 @@
 {% extends "base.html" %}
 
 {% block title %}
-    JSON import | League Mastery Tracker
+    JSON import
+{% endblock %}
+
+{% block page_eyebrow %}
+    Portable data
+{% endblock %}
+
+{% block page_heading %}
+    Import portable JSON data
+{% endblock %}
+
+{% block page_description %}
+    Validate and preview a League Mastery Tracker export
+    before any database changes are allowed.
+{% endblock %}
+
+{% block page_actions %}
+    <a
+        class="button button-secondary"
+        href="/settings"
+    >
+        Back to Settings
+    </a>
 {% endblock %}
 
 {% block content %}
-    <header class="page-header">
-        <div class="page-header__content">
-            <p class="page-header__eyebrow">
-                Portable data
-            </p>
-
-            <h1>
-                Import portable JSON data
-            </h1>
-
-            <p class="page-header__description">
-                Validate and preview a League Mastery Tracker export
-                before any database changes are allowed.
-            </p>
-        </div>
-
-        <div class="page-header__actions">
-            <a
-                class="button button-secondary"
-                href="/settings"
-            >
-                Back to Settings
-            </a>
-        </div>
-    </header>
-
     {% if not prepared_import %}
         <div class="section-stack">
             <section

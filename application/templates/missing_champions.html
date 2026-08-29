@@ -1,36 +1,32 @@
 {% extends "base.html" %}
 
 {% block title %}
-    Missing champion data | League Mastery Tracker
+    Missing champion data
+{% endblock %}
+
+{% block page_eyebrow %}
+    Reference data
+{% endblock %}
+
+{% block page_heading %}
+    Missing champion data
+{% endblock %}
+
+{% block page_description %}
+    Add names for champions that are not yet included
+    in the local Data Dragon reference data.
+{% endblock %}
+
+{% block page_actions %}
+    <a
+        class="button button-secondary"
+        href="/"
+    >
+        Back to Dashboard
+    </a>
 {% endblock %}
 
 {% block content %}
-    <header class="page-header">
-        <div class="page-header__content">
-            <p class="page-header__eyebrow">
-                Reference data
-            </p>
-
-            <h1>
-                Missing champion data
-            </h1>
-
-            <p class="page-header__description">
-                Add names for champions that are not yet included
-                in the local Data Dragon reference data.
-            </p>
-        </div>
-
-        <div class="page-header__actions">
-            <a
-                class="button button-secondary"
-                href="/"
-            >
-                Back to Dashboard
-            </a>
-        </div>
-    </header>
-
     <div class="section-stack">
         <section
             class="card"

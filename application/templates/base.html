@@ -9,9 +9,9 @@
     >
 
     <title>
-        {% block title %}
-            {{ config["PRODUCT_NAME"] }}
-        {% endblock %}
+        {% block title %}{% endblock %}
+        ·
+        {{ config["PRODUCT_NAME"] }}
     </title>
 
     <link
@@ -137,6 +137,26 @@
                 </section>
             {% endif %}
         {% endwith %}
+
+        <header class="page-header">
+            <div class="page-header__content">
+                <p class="page-header__eyebrow">
+                    {% block page_eyebrow %}{% endblock %}
+                </p>
+
+                <h1>
+                    {% block page_heading %}{% endblock %}
+                </h1>
+
+                <p class="page-header__description">
+                    {% block page_description %}{% endblock %}
+                </p>
+            </div>
+
+            <div class="page-header__actions">
+                {% block page_actions %}{% endblock %}
+            </div>
+        </header>
 
         {% block content %}{% endblock %}
     </main>

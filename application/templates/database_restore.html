@@ -1,36 +1,32 @@
 {% extends "base.html" %}
 
 {% block title %}
-    Database restore | League Mastery Tracker
+    Database restore
+{% endblock %}
+
+{% block page_eyebrow %}
+    Database backup
+{% endblock %}
+
+{% block page_heading %}
+    Database restore
+{% endblock %}
+
+{% block page_description %}
+    Restore the application database from an
+    internally created backup.
+{% endblock %}
+
+{% block page_actions %}
+    <a
+        class="button button-secondary"
+        href="/settings"
+    >
+        Back to Settings
+    </a>
 {% endblock %}
 
 {% block content %}
-    <header class="page-header">
-        <div class="page-header__content">
-            <p class="page-header__eyebrow">
-                Database backup
-            </p>
-
-            <h1>
-                Database restore
-            </h1>
-
-            <p class="page-header__description">
-                Restore the application database from an
-                internally created backup.
-            </p>
-        </div>
-
-        <div class="page-header__actions">
-            <a
-                class="button button-secondary"
-                href="/settings"
-            >
-                Back to Settings
-            </a>
-        </div>
-    </header>
-
     <div class="section-stack">
         {% if
             startup_restore_result

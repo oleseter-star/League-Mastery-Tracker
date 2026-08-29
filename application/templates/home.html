@@ -1,44 +1,40 @@
 {% extends "base.html" %}
 
 {% block title %}
-    Dashboard · League Mastery Tracker
+    Dashboard
+{% endblock %}
+
+{% block page_eyebrow %}
+    League Mastery Tracker
+{% endblock %}
+
+{% block page_heading %}
+    Dashboard
+{% endblock %}
+
+{% block page_description %}
+    Review persons, synchronize Champion Mastery,
+    and check the local champion reference data used
+    by the application.
+{% endblock %}
+
+{% block page_actions %}
+    <a
+        class="button button-secondary"
+        href="/persons"
+    >
+        Manage persons
+    </a>
+
+    <a
+        class="button button-secondary"
+        href="/settings"
+    >
+        Settings
+    </a>
 {% endblock %}
 
 {% block content %}
-    <header class="page-header">
-        <div class="page-header__content">
-            <p class="page-header__eyebrow">
-                League Mastery Tracker
-            </p>
-
-            <h1>
-                Dashboard
-            </h1>
-
-            <p class="page-header__description">
-                Review persons, synchronize Champion Mastery,
-                and check the local champion reference data used
-                by the application.
-            </p>
-        </div>
-
-        <div class="page-header__actions">
-            <a
-                class="button button-secondary"
-                href="/persons"
-            >
-                Manage persons
-            </a>
-
-            <a
-                class="button button-secondary"
-                href="/settings"
-            >
-                Settings
-            </a>
-        </div>
-    </header>
-
     <div class="section-stack">
         <section
             class="card card--raised"
