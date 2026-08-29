@@ -28,7 +28,7 @@ class ChampionReferenceBundleBuildService:
 
     This is an explicit development and packaging operation. It is
     not used during normal application startup and never writes to
-    the user's champion database.
+    the user's local champion reference data.
     """
 
     def __init__(
