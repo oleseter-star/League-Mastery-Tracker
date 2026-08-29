@@ -289,6 +289,38 @@ class JsonExportValidationServiceTests(unittest.TestCase):
                 )
             )
 
+    def test_invalid_last_sync_uses_synchronized_terminology(self):
+        document = self._build_valid_document()
+
+        document[
+            "data"
+        ]["persons"][0][
+            "riot_accounts"
+        ][0][
+            "last_sync"
+        ] = "not-a-timestampZ"
+
+        with self.assertRaises(
+            JsonExportValidationError
+        ) as raised_error:
+            (
+                JsonExportValidationService
+                .validate_document(
+                    document
+                )
+            )
+
+        self.assertEqual(
+            str(
+                raised_error.exception
+            ),
+            (
+                "Person at index 0, Riot account at index 0 "
+                "last-synchronized timestamp is not a valid "
+                "timestamp."
+            ),
+        )
+
     def test_negative_mastery_points_are_rejected(self):
         document = self._build_valid_document()
 

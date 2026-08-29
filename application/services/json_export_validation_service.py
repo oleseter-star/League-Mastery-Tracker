@@ -422,7 +422,7 @@ class JsonExportValidationService:
                     account["last_sync"],
                     (
                         f"{account_context} "
-                        "last sync timestamp"
+                        "last-synchronized timestamp"
                     ),
                     allow_none=True,
                 )

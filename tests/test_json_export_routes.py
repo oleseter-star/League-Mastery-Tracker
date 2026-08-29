@@ -135,6 +135,72 @@ class JsonExportRouteTests(unittest.TestCase):
             ),
         )
 
+    def test_export_page_uses_mastery_points_copy(self):
+        response = self.client.get(
+            "/settings/data-export"
+        )
+
+        self.assertEqual(
+            response.status_code,
+            200,
+        )
+
+        html = response.get_data(
+            as_text=True
+        )
+
+        scope_sections = re.findall(
+            r'<section\b[^>]*aria-labelledby="export-scope-heading"'
+            r'[^>]*>(?P<section>.*?)</section>',
+            html,
+            flags=re.DOTALL,
+        )
+
+        self.assertEqual(
+            len(scope_sections),
+            1,
+        )
+
+        included_articles = [
+            article
+            for article in re.findall(
+                r'<article\b[^>]*>(?P<article>.*?)</article>',
+                scope_sections[0],
+                flags=re.DOTALL,
+            )
+            if re.search(
+                r"<h3>\s*Included\s*</h3>",
+                article,
+                flags=re.DOTALL,
+            )
+        ]
+
+        self.assertEqual(
+            len(included_articles),
+            1,
+        )
+
+        included_labels = [
+            " ".join(
+                label.split()
+            )
+            for label in re.findall(
+                r"<li>(?P<label>.*?)</li>",
+                included_articles[0],
+                flags=re.DOTALL,
+            )
+        ]
+
+        self.assertIn(
+            "Mastery points",
+            included_labels,
+        )
+
+        self.assertNotIn(
+            "Champion Mastery points",
+            included_labels,
+        )
+
     def test_export_page_contains_download_link(self):
         response = self.client.get(
             "/settings/data-export"
