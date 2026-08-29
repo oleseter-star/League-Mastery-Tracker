@@ -1,12 +1,10 @@
 # League Mastery Tracker
 
-League Mastery Tracker er en lokal Windows-applikasjon for registrering av personer, Riot-kontoer og League of Legends Champion Mastery.
+League Mastery Tracker is a local application for organizing Persons, their Riot accounts, and League of Legends Champion Mastery. It runs a Flask server on the local computer and opens the interface in the default browser. The packaged Windows application is designed for ordinary users and does not require a separate Python or database installation.
 
-Applikasjonen kjører en lokal Flask-server og åpner brukergrensesnittet i standardnettleseren. Den ferdige Windows-utgaven kan startes med dobbeltklikk og krever ikke at sluttbrukeren installerer Python, PowerShell-verktøy eller databaseprogrammer.
+## Product identity and status
 
-## Produktidentitet
-
-Gjeldende produktidentitet:
+The canonical product identity is defined in `application/config/__init__.py`:
 
 ```text
 Product name: League Mastery Tracker
@@ -15,330 +13,199 @@ Application version: 2.0.0
 Windows executable: LeagueMasteryTracker.exe
 ```
 
-Den autoritative runtime-kilden er `application.config.Config`, med feltene:
+League Mastery Tracker 2.0 is still undergoing integration and release-readiness work. The repository contains the complete core workflows described below, but this README does not claim that Step 10 or the 2.0 release has completed final Windows acceptance.
+
+The verified Step 10.5 integration checkpoint was:
 
 ```text
-Config.PRODUCT_NAME
-Config.RELEASE_NAME
-Config.APPLICATION_VERSION
-Config.WINDOWS_EXECUTABLE_NAME
+757 tests executed
+744 passed
+0 failures
+0 errors
+13 intentional platform/optional-environment skips
 ```
 
-## Gjeldende status
+This is a recorded integration checkpoint, not necessarily the exact current test-method count after later changes. The skips consisted of Windows-only application-instance locking tests, Windows-only encrypted Riot API-key tests, Windows DPAPI tests, and one optional PyInstaller Windows-resource parser test when `pefile` was unavailable. Skipped tests were not failures.
 
-Ferdige hovedsteg:
+## Features
 
-* Personer og Riot-kontoer
-* Champion Mastery-synkronisering
-* Lokal SQLite-database
-* Databasebackup og kontrollert restore
-* Portabel JSON-eksport og -import
-* Kryptert lokal lagring av Riot API-nøkkel
-* Konsollfri Windows onefile-build
-* Én-instanskontroll og kontrollert avslutning
-* Medfølgende championdatabase og lokale championikoner
-* Offline førstegangsoppstart
-* Kontrollert manuell Data Dragon-oppdatering
+- Create a Person and attach one or more Riot accounts.
+- Synchronize Champion Mastery for accounts that are stale or for all accounts on demand.
+- Show Mastery points, Champion names, and local Champion images on the Dashboard.
+- Record when each Riot account was Last synchronized.
+- Keep Champion reference data available through a Bundled dataset and a Local cache.
+- Preserve an Unknown champion and allow Manual metadata when reference data is incomplete; the Missing metadata page identifies records that need attention.
+- Manage the Riot API key, Portable data, Database backup, Database restore, and Controlled shutdown from Settings.
+- Export and import the portable domain data separately from full SQLite backups.
 
-Automatisert testsuite:
+Deleting a Person also deletes that Person's locally stored Riot accounts and Champion Mastery records. Treat deletion, JSON import, and Database restore as destructive workflows and create or verify a suitable backup first.
+
+## Reference data and offline behavior
+
+The repository includes local Champion reference data and images under:
 
 ```text
-630 tester
+application/bundled_reference_data/data_dragon/
+├── manifest.json
+├── champions.json
+└── champion_icons/
 ```
 
-## Offline championdata
+The checked-in manifest currently identifies Data Dragon version `16.14.1`, locale `en_US`, and 173 Champions. This snapshot lets a new data directory display Champion names and images without a Riot API key, a Data Dragon request, or a manual update.
 
-Programmet leveres med et komplett lokalt championdatasett under:
+At startup, the application validates local sources and selects them in this order:
 
-```text
-application/
-└── bundled_reference_data/
-    └── data_dragon/
-        ├── manifest.json
-        ├── champions.json
-        └── champion_icons/
-```
+1. A valid Local cache when its Data Dragon version is newer than the Bundled dataset.
+2. The valid Bundled dataset.
+3. Existing SQLite records as a Database-only fallback when neither file source is usable.
 
-Det medfølgende datasettet inneholder:
+Reference data is merged without deleting existing Champions or their Champion Mastery relationships. Manual metadata is preserved, and an Unknown champion can receive metadata later when its Riot Champion ID appears in a valid source.
 
-```text
-173 champions
-173 lokale championikoner
-Locale: en_US
-```
+Normal startup and navigation are offline operations. They do not contact Riot or Data Dragon, and a manual Data Dragon update is not required for first startup. Refresh a browser page to reload existing local information; this does not synchronize or update data. Network access occurs only through explicit actions that need it, including adding a Riot account, synchronizing Champion Mastery, and updating reference data.
 
-En ny installasjon kan derfor vise championnavn og championikoner uten:
+### Manual Data Dragon updates
 
-* internettilkobling
-* Riot API-nøkkel
-* tilgjengelig Data Dragon-tjeneste
-* manuell registrering av champions
+The Reference data update control on the Dashboard explicitly checks Data Dragon. The application compares the active Data Dragon version with the latest version and downloads only through that manual workflow. In status terms, a newer remote version means Update available; otherwise there is No update available. A forced update may reinstall the current remote version, but an older remote version does not replace newer local data.
 
-Vanlig oppstart og navigasjon utfører ikke Data Dragon-kall.
+A successful update downloads Champion data and images, builds and validates a complete temporary dataset, merges its metadata, and installs the Local cache atomically. A failed update leaves the previously usable bundle, cache, database records, and Champion Mastery available.
 
-## Referansedatakilder
-
-Applikasjonen prioriterer championreferansedata slik:
-
-1. En gyldig lokal Data Dragon-cache dersom den er nyere enn det medfølgende datasettet.
-2. Det medfølgende championdatasettet.
-3. Eksisterende championposter i SQLite-databasen dersom begge filkildene er utilgjengelige.
-
-Eksisterende champions og mastery-data slettes ikke fordi en champion mangler fra et datasett.
-
-Ukjente Riot champion-ID-er bevares og kan få metadata senere dersom ID-en blir tilgjengelig i et gyldig datasett.
-
-Manuelt registrert championmetadata bevares.
-
-## Data Dragon-oppdatering
-
-Data Dragon brukes bare gjennom en eksplisitt brukerhandling.
-
-En manuell oppdatering:
-
-1. Henter nyeste Data Dragon-versjon.
-2. Laster ned championdata og championikoner.
-3. Bygger et komplett midlertidig datasett.
-4. Validerer manifest, checksum, poster og bilder.
-5. Merger metadata transaksjonelt mot databasen.
-6. Installerer lokal cache atomisk.
-7. Bevarer tidligere fungerende data dersom noe feiler.
-
-En mislykket oppdatering skal ikke gjøre det medfølgende datasettet, gammel cache, database eller mastery-data utilgjengelig.
-
-## Bygge bundled championdatasett
-
-Utviklingsmiljøet må være aktivert og prosjektmappen må være gjeldende arbeidsmappe.
-
-Kjør:
+Developers can intentionally rebuild the checked-in Bundled dataset with:
 
 ```powershell
 python build_champion_reference_bundle.py
 ```
 
-Kommandoen genererer:
+That command contacts Data Dragon and rewrites the tracked resources under `application\bundled_reference_data\data_dragon\`; it is not part of normal application startup.
 
-```text
-application\bundled_reference_data\data_dragon\manifest.json
-application\bundled_reference_data\data_dragon\champions.json
-application\bundled_reference_data\data_dragon\champion_icons\
-```
+## Riot API synchronization
 
-Kontroller ressursene:
+Adding a Riot account resolves the Riot ID through Riot's API and stores its PUUID, but it does not automatically synchronize Champion Mastery. The Dashboard provides two explicit POST actions:
+
+- Synchronize accounts that have never been synchronized or whose Last synchronized time is at least 24 hours old.
+- Synchronize every stored Riot account, regardless of age.
+
+Synchronization updates local data account by account. A failure for one account does not stop the remaining accounts, and existing local records remain available when the network or Riot API is unavailable. Normal offline browsing does not initiate synchronization.
+
+## Run from source
+
+Python and the dependencies pinned in `requirements.txt` are required for development. From the repository root, create and activate a virtual environment, install the tracked requirements, and run the Python entry point:
 
 ```powershell
-Get-ChildItem `
-    application\bundled_reference_data\data_dragon
-
-(Get-ChildItem `
-    application\bundled_reference_data\data_dragon\champion_icons `
-    -File).Count
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -r requirements.txt
+python run.py
 ```
 
-## Kjøre automatiserte tester
+On non-Windows systems, use the activation command appropriate for the shell. The application writes development data to the repository-local `data/` directory unless the data-directory override described below is set.
 
-Aktiver prosjektets virtuelle miljø og kjør:
+## Tests
+
+With the project environment active, run the unittest suite with:
 
 ```powershell
 python -m unittest discover -s tests -v
 ```
 
-Forventet gjeldende resultat:
+Platform-specific or optional-environment skips should be reviewed in context; they are not test failures. The Step 10.5 checkpoint above is the last documented full regression result. Later focused additions can change the current number of discovered tests.
 
-```text
-Ran 630 tests
-OK
-```
+## Windows builds
 
-## Kjøre fra kildekode
-
-Fra prosjektmappen:
+Build dependencies are pinned separately from runtime dependencies:
 
 ```powershell
-python run.py
+python -m pip install -r requirements-build.txt
 ```
 
-Normal utviklingskjøring krever Python og prosjektets installerte utviklingsavhengigheter.
-
-Dette gjelder ikke den ferdige Windows-programfilen.
-
-## Bygge Windows-programmet
-
-### Konsollfri onefile-utgave
-
-```powershell
-Remove-Item `
-    build\LeagueMasteryTracker-onefile `
-    -Recurse `
-    -Force `
-    -ErrorAction SilentlyContinue
-
-Remove-Item `
-    dist\LeagueMasteryTracker.exe `
-    -Force `
-    -ErrorAction SilentlyContinue
-
-python -m PyInstaller `
-    --clean `
-    --noconfirm `
-    LeagueMasteryTracker-onefile.spec
-```
-
-Ferdig programfil:
-
-```text
-dist\LeagueMasteryTracker.exe
-```
-
-### PyInstaller-ressurser
-
-Begge spec-filene inkluderer:
-
-* Flask-templates
-* statiske filer
-* bundled manifest
-* bundled championdata
-* alle lokale championikoner
-* nødvendige `pystray`-moduler
-
-Spec-filer:
+The repository tracks two PyInstaller specifications:
 
 ```text
 LeagueMasteryTracker.spec
 LeagueMasteryTracker-onefile.spec
 ```
 
-Begge spec-filene bruker `pyinstaller_build_metadata.py`. Navnet på programfilen og Windows-versjonsmetadata utledes fra de kanoniske Config-feltene som er oppført under produktidentitet.
+Build either specification from the repository root:
 
-Begge spec-filene bruker den samme single-executable-arkitekturen uten en `COLLECT`-fase. På Windows produserer begge `LeagueMasteryTracker.exe`, og dokumentert standardoutput er fortsatt:
+```powershell
+python -m PyInstaller --clean --noconfirm LeagueMasteryTracker.spec
+python -m PyInstaller --clean --noconfirm LeagueMasteryTracker-onefile.spec
+```
+
+Both current specifications use PyInstaller's single-executable architecture and intentionally have no `COLLECT` phase. They both write the canonical executable to:
 
 ```text
 dist\LeagueMasteryTracker.exe
 ```
 
-Windows-versjonsmetadata er implementert i kildekoden og dekket av automatiserte tester. Endelig Windows-aksept gjenstår og krever:
+The standard and explicitly named one-file specifications are retained as separate build targets, but the current repository does not define a separate one-folder artifact. Running both commands in sequence targets the same output filename.
 
-* en ren Windows-build
-* verifisering av programfilnavnet
-* kontroll under Explorer → Properties → Details
+Both specifications include Flask templates, static assets, the Bundled dataset, local Champion images, and required `pystray` modules. `pyinstaller_build_metadata.py` derives the executable name and Windows version resource from the canonical product configuration. The packaged executable uses `console=False`; final release acceptance still requires a clean Windows build and verification of Explorer's file details. Do not treat source-level packaging tests as a substitute for that check.
 
-## Windows-oppstart
+## Application data
 
-Den ferdige `.exe`-filen:
-
-* åpner ingen konsoll
-* starter den lokale serveren
-* åpner standardnettleseren
-* hindrer flere samtidige appinstanser
-* støtter kontrollert avslutning fra Innstillinger
-* kan avsluttes når siste relevante nettleserfane lukkes
-* bruker data under den innloggede Windows-brukerens lokale dataområde
-
-## Lokal datamappe
-
-Mutable brukerdata lagres normalt under:
+Mutable user data is separate from the packaged application. On Windows, the default Data directory is:
 
 ```text
 %LOCALAPPDATA%\LeagueMasteryTracker\
 ```
 
-Dette inkluderer blant annet:
+`LEAGUE_MASTERY_TRACKER_DATA_DIR` overrides that location. When `LOCALAPPDATA` is unavailable on Windows, the application falls back to the current profile's `AppData\Local\LeagueMasteryTracker` directory. Source runs on non-Windows systems default to the repository-local `data/` directory.
+
+The application creates these locations at runtime:
 
 ```text
-database\
-configuration\
+database\league_mastery_tracker.db
+configuration\flask_secret_key.bin
+configuration\riot_api_key.dpapi
 reference\
 backups\
 ```
 
-Programfilene og brukerens mutable data holdes adskilt.
+The `reference\` directory holds an updated Local cache. The `backups\` directory holds internal SQLite backups. A controlled legacy-data migration copies existing project-local data into a new Windows Application data location without deleting the source or overwriting existing destination data.
 
-Bundled championdata ligger i programmet, mens en senere Data Dragon-cache lagres under brukerens lokale dataområde.
+## Configuration and Riot API-key protection
 
-## Riot API-nøkkel
+Settings can save or replace a Riot API key. On Windows, locally saved keys are encrypted with DPAPI for the current Windows user and stored in `configuration\riot_api_key.dpapi`. A legacy plaintext `configuration\riot_api_key.txt` can be migrated to protected storage. `RIOT_API_KEY` remains a supported environment source for development or deployment configuration.
 
-En Riot API-nøkkel kan registreres fra Innstillinger.
+The key is not stored in SQLite and is not included in Database backups or JSON exports. DPAPI protection is not a promise that the key can be moved to another Windows profile or computer; save a new key when the existing protected value cannot be decrypted. Riot development keys expire and must be replaced when Riot invalidates them. Never commit API keys or data-directory contents.
 
-Lokalt lagrede nøkler:
+## Data protection workflows
 
-* krypteres med Windows DPAPI
-* er knyttet til samme Windows-bruker og maskin
-* lagres ikke i SQLite-databasen
-* inkluderes ikke i databasebackups
-* inkluderes ikke i JSON-eksporter
-* skal ikke committes til Git
+Database backup and JSON export solve different problems. A backup is a full SQLite recovery point for this installation. A JSON export is Portable data that can be imported through the versioned application contract.
 
-Development API keys fra Riot utløper regelmessig og må erstattes når Riot deaktiverer dem.
+### Database backup and restore
 
-## Backup og restore
+The application can create a Database backup manually. At startup it also creates one when an existing database has no backup or the newest backup is at least 24 hours old. Internal backups use SQLite's backup operation, and the default retention policy keeps the 10 newest files.
 
-Databasebackup og JSON-eksport har forskjellige formål.
+Database restore accepts only validated internal backup candidates. Selecting a backup copies it into private staging; it does not immediately replace the live database. The staged restore is verified and applied before SQLAlchemy opens the database on the next startup. If a live database exists, the application first creates and validates a Safety backup. Failed validation or replacement leaves the current database in place.
 
-### Databasebackup
+### JSON export and import
 
-Databasebackup er en full intern SQLite-kopi og brukes til kontrollert restore av den lokale installasjonen.
+JSON export produces a UTF-8 portable file containing Persons, Riot accounts, Champions, Champion Mastery, format metadata, and counts. Stable relationships use PUUID, Riot Champion IDs, and nesting rather than internal database primary keys. Local secrets are excluded.
 
-Applikasjonen:
+JSON import is not Database restore. The application validates and privately stages an export, shows a preview, rejects blocking PUUID conflicts, and requires the exact confirmation text `IMPORT`. Immediately before an import that writes data, it revalidates the source and plan, consumes the staged request so it cannot run twice, and creates a mandatory Safety backup. Database changes run in one transaction and roll back on failure. A no-change plan performs no writes and creates no backup.
 
-* kan opprette backup manuelt
-* oppretter periodisk startup-backup
-* beholder de nyeste backupfilene
-* validerer restore-kandidater
-* oppretter safety backup før restore
-* gjennomfører pending restore under neste oppstart
+## Desktop lifecycle
 
-### JSON-eksport og import
+The packaged application coordinates its local server, browser, notification-area integration, and shutdown:
 
-JSON-formatet er en portabel domenedatakontrakt.
+- Single-instance control prevents a second server process for the same user session; a second launch opens the existing local application URL.
+- Each browser tab sends a local heartbeat. After at least one tab has registered, closing all relevant tabs allows the application to request Controlled shutdown after its grace period.
+- Settings provides an explicit Controlled shutdown action.
+- Server, tab-monitor, tray, and instance-lock resources are cleaned up during shutdown.
+- Windows packages are console-free.
 
-Det bruker:
+These behaviors are local. They do not make startup or navigation dependent on internet access.
 
-* PUUID som stabil Riot-kontoidentitet
-* Riot champion-ID som stabil championidentitet
-* nesting for person–konto-relasjoner
-* eksplisitt formatversjon
-* eksplisitt databaseskjemaversjon
-
-Interne database-ID-er og lokale hemmeligheter eksporteres ikke.
-
-## Isolert offline-test
-
-Den konsollfrie onefile-utgaven er verifisert fra en separat programmappe med en tom, isolert brukerdatamappe og uten internettilkobling.
-
-Følgende er kontrollert:
-
-* normal dobbeltklikkoppstart
-* ingen konsoll
-* automatisk nettleseråpning
-* tom database blir initialisert
-* 173 championposter blir tilgjengelige
-* championnavn vises offline
-* lokale championikoner er tilgjengelige
-* ingen manuell Data Dragon-oppdatering er nødvendig
-* prosjektmappen brukes ikke som brukerdataområde
-* Innstillinger og kontrollert avslutning fungerer
-
-## Juridisk informasjon
+## Legal notice and attribution
 
 League Mastery Tracker isn't endorsed by Riot Games and doesn't reflect the views or opinions of Riot Games or anyone officially involved in producing or managing Riot Games properties. Riot Games, and all associated properties are trademarks or registered trademarks of Riot Games, Inc.
 
-Programmet bruker championdata og championikoner fra Riot Games Data Dragon. Dataene lagres lokalt for å støtte offline bruk.
+Source of champion reference data and graphical assets: Riot Games Data Dragon. The application stores this material locally to support offline use.
 
-Gjeldende Riot-policy og Data Dragon-dokumentasjon er lenket fra Innstillinger i applikasjonen.
+- [Riot Developer General Policies](https://developer.riotgames.com/policies/general)
+- [Riot Data Dragon documentation](https://developer.riotgames.com/docs/lol)
 
-## Neste hovedsteg
+## Development outlook
 
-Neste planlagte hovedsteg er:
-
-```text
-Steg 10 – Visuell ferdigstilling og dashboardpolering
-```
-
-Dette omfatter blant annet:
-
-* samlet visuell struktur
-* forbedret dashboard
-* tydeligere navigasjon
-* lokal visning av championikoner
-* responsiv layout
-* bedre presentasjon av personer, kontoer og mastery-data
+The stable product identity is League Mastery Tracker 2.0, Version 2.0.0. Core local-data, synchronization, backup, portable-data, offline-reference, and lifecycle workflows are implemented. Ongoing work should continue to rely on focused regression checks and final Windows acceptance evidence; later documentation or terminology slices do not by themselves declare the release complete.
