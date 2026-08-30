@@ -15,17 +15,27 @@ Windows executable: LeagueMasteryTracker.exe
 
 League Mastery Tracker 2.0 is still undergoing integration and release-readiness work. The repository contains the complete core workflows described below, but this README does not claim that Step 10 or the 2.0 release has completed final Windows acceptance.
 
-The verified Step 10.5 integration checkpoint was:
+The verified Step 10.5 historical checkpoint was:
 
 ```text
-757 tests executed
-744 passed
+757 executed
+744 reconciled passes
 0 failures
 0 errors
-13 intentional platform/optional-environment skips
+13 intentional skips
 ```
 
-This is a recorded integration checkpoint, not necessarily the exact current test-method count after later changes. The skips consisted of Windows-only application-instance locking tests, Windows-only encrypted Riot API-key tests, Windows DPAPI tests, and one optional PyInstaller Windows-resource parser test when `pefile` was unavailable. Skipped tests were not failures.
+The current Step 10.15 verification is:
+
+```text
+783 executed
+770 reconciled passes
+0 failures
+0 errors
+13 intentional skips
+```
+
+It consists of one restricted full-suite run, two sandbox-only local-loopback socket permission errors, and one focused elevated rerun of the 16-test application-server module; the reconciled totals replace only those two errors. See the tracked [Step10-test-results.txt](Step10-test-results.txt) artifact for the complete evidence and skip categories. Native Windows build and acceptance remain pending Steps 10.16–10.17.
 
 ## Features
 
@@ -107,7 +117,7 @@ With the project environment active, run the unittest suite with:
 python -m unittest discover -s tests -v
 ```
 
-Platform-specific or optional-environment skips should be reviewed in context; they are not test failures. The Step 10.5 checkpoint above is the last documented full regression result. Later focused additions can change the current number of discovered tests.
+Platform-specific or optional-environment skips should be reviewed in context; they are not test failures. Later focused additions can change the current number of discovered tests. This README does not claim a completed Windows build, PyInstaller build success, executable launch success, Windows acceptance, or final release readiness.
 
 ## Windows builds
 
