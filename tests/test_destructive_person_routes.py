@@ -1,3 +1,5 @@
+import json
+import re
 import unittest
 from pathlib import Path
 
@@ -114,14 +116,13 @@ class DestructivePersonRoutesTestCase(
             as_text=True
         )
 
-    def test_person_page_shows_confirmed_delete_person_action(
+    def get_delete_form(
         self,
+        html,
     ):
         """
-        The Person page must offer protected Person deletion.
+        Return the rendered form for this Person's delete endpoint.
         """
-
-        html = self.get_person_page_html()
 
         delete_action = (
             f"/persons/{self.person_id}/delete"
@@ -157,9 +158,48 @@ class DestructivePersonRoutesTestCase(
             -1,
         )
 
-        delete_form = html[
+        return html[
             form_start:form_end
         ]
+
+    def get_delete_confirmation(
+        self,
+        delete_form,
+    ):
+        """
+        Decode the JSON string passed to the delete confirmation.
+        """
+
+        confirmation_match = re.search(
+            r"return\s+confirm\(\s*"
+            r'(?P<message>"(?:\\.|[^"\\])*")'
+            r"\s*\);",
+            delete_form,
+            flags=re.DOTALL,
+        )
+
+        self.assertIsNotNone(
+            confirmation_match,
+        )
+
+        return json.loads(
+            confirmation_match.group(
+                "message"
+            )
+        )
+
+    def test_person_page_shows_confirmed_delete_person_action(
+        self,
+    ):
+        """
+        The Person page must offer protected Person deletion.
+        """
+
+        html = self.get_person_page_html()
+
+        delete_form = self.get_delete_form(
+            html
+        )
 
         self.assertIn(
             'method="post"',
@@ -181,15 +221,84 @@ class DestructivePersonRoutesTestCase(
             delete_form,
         )
 
-        confirmation = (
-            "Are you sure you want to delete this person and all "
-            "connected Riot accounts and Champion Mastery data? "
-            "This cannot be undone."
+        self.assertIn(
+            "and all connected Riot accounts and Champion "
+            "Mastery data? This cannot be undone.",
+            self.get_delete_confirmation(
+                delete_form
+            ),
+        )
+
+    def test_delete_confirmation_names_person_and_safely_encodes_display_name(
+        self,
+    ):
+        """
+        The rendered delete form must name and safely encode its Person.
+        """
+
+        self.person.display_name = (
+            'Riot "O\'Connor" <Admin> & \u5317'
+        )
+
+        db.session.commit()
+
+        delete_form = self.get_delete_form(
+            self.get_person_page_html()
         )
 
         self.assertIn(
-            confirmation,
+            'method="post"',
+            delete_form.lower(),
+        )
+
+        self.assertIn(
+            'name="_csrf_token"',
             delete_form,
+        )
+
+        self.assertIn(
+            "test-csrf-token",
+            delete_form,
+        )
+
+        self.assertIn(
+            "Delete person",
+            delete_form,
+        )
+
+        confirmation = self.get_delete_confirmation(
+            delete_form
+        )
+
+        self.assertIn(
+            self.person.display_name,
+            confirmation,
+        )
+
+        self.assertNotIn(
+            "delete this person",
+            confirmation,
+        )
+
+        self.assertIn(
+            "and all connected Riot accounts and Champion "
+            "Mastery data? This cannot be undone.",
+            confirmation,
+        )
+
+        self.assertIn(
+            "\\u003cAdmin\\u003e",
+            delete_form,
+        )
+
+        self.assertNotIn(
+            "<Admin>",
+            delete_form,
+        )
+
+        self.assertNotIn(
+            self.riot_account.puuid,
+            confirmation,
         )
 
     def test_delete_person_endpoint_deletes_connected_data(
