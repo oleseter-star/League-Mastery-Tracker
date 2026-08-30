@@ -124,7 +124,10 @@
                                             {% if champion.image %}
                                                 <img
                                                     class="champion-image"
-                                                    src="{{ champion.image }}"
+                                                    src="{{ url_for(
+                                                        'champion_images.champion_image',
+                                                        image_filename=champion.image
+                                                    ) }}"
                                                     alt="{{ champion.champion_name }}"
                                                     width="44"
                                                     height="44"
@@ -231,7 +234,10 @@
                                             {% if champion.image %}
                                                 <img
                                                     class="champion-image"
-                                                    src="{{ champion.image }}"
+                                                    src="{{ url_for(
+                                                        'champion_images.champion_image',
+                                                        image_filename=champion.image
+                                                    ) }}"
                                                     alt="{{ champion.champion_name }}"
                                                     width="44"
                                                     height="44"

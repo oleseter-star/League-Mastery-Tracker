@@ -6,8 +6,13 @@ from flask import Blueprint, Flask
 
 from application.database.database import db
 from application.database.models import (
+    Champion,
+    ChampionMastery,
     Person,
     RiotAccount,
+)
+from application.routes.champion_images import (
+    champion_images_bp,
 )
 from application.routes.persons import persons_bp
 
@@ -62,6 +67,10 @@ class PersonNavigationTestCase(unittest.TestCase):
 
         self.app.register_blueprint(
             persons_bp
+        )
+
+        self.app.register_blueprint(
+            champion_images_bp
         )
 
         self.app.jinja_env.globals[
@@ -510,6 +519,156 @@ class PersonNavigationTestCase(unittest.TestCase):
             detail_html,
             r"/persons/\d+/riot-accounts/\d+/delete",
         )
+
+    def test_person_detail_uses_local_champion_image_endpoint(
+        self,
+    ):
+        aatrox = Champion(
+            riot_champion_id=266,
+            name="Aatrox",
+            image="Aatrox.png",
+            source="data_dragon",
+        )
+
+        missing_image = Champion(
+            riot_champion_id=999,
+            name="Missing Image",
+            image=None,
+            source="data_dragon",
+        )
+
+        db.session.add_all(
+            [
+                aatrox,
+                missing_image,
+            ]
+        )
+
+        db.session.flush()
+
+        db.session.add_all(
+            [
+                ChampionMastery(
+                    riot_account_id=(
+                        self.riot_account.id
+                    ),
+                    champion_id=aatrox.id,
+                    mastery_points=12345,
+                ),
+                ChampionMastery(
+                    riot_account_id=(
+                        self.riot_account.id
+                    ),
+                    champion_id=missing_image.id,
+                    mastery_points=6789,
+                ),
+            ]
+        )
+
+        db.session.commit()
+
+        response = self.client.get(
+            f"/persons/{self.alpha_person.id}"
+        )
+
+        self.assertEqual(
+            response.status_code,
+            200,
+        )
+
+        html = response.get_data(
+            as_text=True
+        )
+
+        sections = re.findall(
+            r'<section\b[^>]*aria-labelledby="'
+            r'(?:top-champions|champion-mastery)-heading"'
+            r'[^>]*>(?P<section>.*?)</section>',
+            html,
+            flags=re.DOTALL,
+        )
+
+        self.assertEqual(
+            len(sections),
+            2,
+        )
+
+        for section in sections:
+            rows = re.findall(
+                r"<tr>(?P<row>.*?)</tr>",
+                section,
+                flags=re.DOTALL,
+            )
+
+            aatrox_row = next(
+                row
+                for row in rows
+                if "Aatrox" in row
+            )
+
+            image_tags = re.findall(
+                r"<img\b(?P<attributes>[^>]*)>",
+                aatrox_row,
+                flags=re.DOTALL,
+            )
+
+            self.assertEqual(
+                len(image_tags),
+                1,
+            )
+
+            image_attributes = image_tags[0]
+
+            self.assertIn(
+                'src="/champions/images/Aatrox.png"',
+                image_attributes,
+            )
+
+            self.assertNotIn(
+                'src="Aatrox.png"',
+                image_attributes,
+            )
+
+            self.assertNotRegex(
+                image_attributes,
+                r"(?:https?:)?//",
+            )
+
+            self.assertIn(
+                'alt="Aatrox"',
+                image_attributes,
+            )
+
+            self.assertIn(
+                "Aatrox",
+                aatrox_row,
+            )
+
+            self.assertIn(
+                "12 345",
+                aatrox_row,
+            )
+
+            missing_row = next(
+                row
+                for row in rows
+                if "Missing Image" in row
+            )
+
+            self.assertNotIn(
+                "<img",
+                missing_row,
+            )
+
+            self.assertIn(
+                'class="champion-placeholder"',
+                missing_row,
+            )
+
+            self.assertIn(
+                'role="img"',
+                missing_row,
+            )
 
 
 if __name__ == "__main__":
