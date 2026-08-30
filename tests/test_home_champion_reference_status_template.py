@@ -1,6 +1,7 @@
 import importlib
 import re
 import unittest
+from datetime import datetime
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
@@ -166,7 +167,9 @@ class HomeChampionReferenceStatusTemplateTests(
             },
         )
 
-        self.dashboard_patch.start()
+        self.dashboard_service = (
+            self.dashboard_patch.start()
+        )
 
         self.status_patch = patch.object(
             home_module,
@@ -312,6 +315,198 @@ class HomeChampionReferenceStatusTemplateTests(
 
         return section_match.group(
             "section"
+        )
+
+    def _get_person_cards(
+        self,
+        html,
+    ):
+        section_match = re.search(
+            r'<section\b[^>]*aria-labelledby="persons-heading"'
+            r'[^>]*>(?P<section>.*?)</section>',
+            html,
+            flags=re.DOTALL,
+        )
+
+        self.assertIsNotNone(
+            section_match,
+        )
+
+        return re.findall(
+            r'<article\b[^>]*>(?P<article>.*?)</article>',
+            section_match.group(
+                "section"
+            ),
+            flags=re.DOTALL,
+        )
+
+    def test_person_cards_render_scoped_dashboard_summaries(
+        self,
+    ):
+        synchronized_at = datetime(
+            2026,
+            8,
+            29,
+            14,
+            35,
+        )
+
+        self.dashboard_service.return_value = {
+            "persons": [
+                {
+                    "id": 7,
+                    "display_name": "Synced Person",
+                    "riot_account_count": 3,
+                    "total_mastery": 123456789,
+                    "highest_mastery_champion": None,
+                    "last_successful_sync": synchronized_at,
+                },
+                {
+                    "id": 8,
+                    "display_name": "New Person",
+                    "riot_account_count": 0,
+                    "total_mastery": 0,
+                    "highest_mastery_champion": None,
+                    "last_successful_sync": None,
+                },
+            ],
+            "person_count": 2,
+        }
+
+        html = self._get_home_html(
+            self._build_status()
+        )
+
+        cards = self._get_person_cards(
+            html
+        )
+
+        self.assertEqual(
+            len(cards),
+            2,
+        )
+
+        expected_cards = {
+            "Synced Person": {
+                "href": "/persons/7",
+                "Riot accounts": "3",
+                "Mastery points": "123 456 789",
+                "Last synchronized": "2026-08-29 14:35",
+            },
+            "New Person": {
+                "href": "/persons/8",
+                "Riot accounts": "0",
+                "Mastery points": "0",
+                "Last synchronized": "Never",
+            },
+        }
+
+        for card in cards:
+            heading_match = re.search(
+                r"<h3>(?P<label>.*?)</h3>",
+                card,
+                flags=re.DOTALL,
+            )
+
+            self.assertIsNotNone(
+                heading_match,
+            )
+
+            person_name = " ".join(
+                heading_match.group(
+                    "label"
+                ).split()
+            )
+
+            expected = expected_cards.pop(
+                person_name
+            )
+
+            self.assertIn(
+                f'href="{expected["href"]}"',
+                card,
+            )
+
+            summaries = {}
+
+            for item in re.findall(
+                r'<div\b[^>]*class="(?:metadata|status)-item"[^>]*>'
+                r'(?P<item>.*?)</div>',
+                card,
+                flags=re.DOTALL,
+            ):
+                label_match = re.search(
+                    r'<dt\b[^>]*>(?P<label>.*?)</dt>',
+                    item,
+                    flags=re.DOTALL,
+                )
+                value_match = re.search(
+                    r'<dd\b[^>]*>(?P<value>.*?)</dd>',
+                    item,
+                    flags=re.DOTALL,
+                )
+
+                self.assertIsNotNone(
+                    label_match,
+                )
+                self.assertIsNotNone(
+                    value_match,
+                )
+
+                label = " ".join(
+                    label_match.group(
+                        "label"
+                    ).split()
+                )
+                value = " ".join(
+                    re.sub(
+                        r"<[^>]+>",
+                        "",
+                        value_match.group(
+                            "value"
+                        ),
+                    ).split()
+                )
+
+                summaries.setdefault(
+                    label,
+                    [],
+                ).append(
+                    value
+                )
+
+            for label in (
+                "Riot accounts",
+                "Mastery points",
+                "Last synchronized",
+            ):
+                with self.subTest(
+                    person=person_name,
+                    label=label,
+                ):
+                    self.assertEqual(
+                        summaries.get(
+                            label
+                        ),
+                        [expected[label]],
+                    )
+
+            self.assertNotIn(
+                "None",
+                card,
+            )
+            self.assertNotIn(
+                "object at",
+                card,
+            )
+            self.assertNotIn(
+                "PUUID",
+                card,
+            )
+
+        self.assertEqual(
+            expected_cards,
+            {},
         )
 
     def test_reference_status_section_is_visible(

@@ -68,6 +68,54 @@
                                 {{ person.display_name }}
                             </h3>
 
+                            <dl class="status-list">
+                                <div class="status-item">
+                                    <dt>
+                                        Riot accounts
+                                    </dt>
+
+                                    <dd>
+                                        {{ person.riot_account_count }}
+                                    </dd>
+                                </div>
+
+                                <div class="status-item">
+                                    <dt>
+                                        Mastery points
+                                    </dt>
+
+                                    <dd>
+                                        {{
+                                            "{:,}".format(
+                                                person.total_mastery
+                                            ).replace(",", " ")
+                                        }}
+                                    </dd>
+                                </div>
+
+                                <div class="status-item">
+                                    <dt>
+                                        Last synchronized
+                                    </dt>
+
+                                    <dd>
+                                        {% if
+                                            person.last_successful_sync
+                                        %}
+                                            {{
+                                                person.last_successful_sync.strftime(
+                                                    "%Y-%m-%d %H:%M"
+                                                )
+                                            }}
+                                        {% else %}
+                                            <span class="muted">
+                                                Never
+                                            </span>
+                                        {% endif %}
+                                    </dd>
+                                </div>
+                            </dl>
+
                             <div class="actions">
                                 <a
                                     class="button button-secondary"
