@@ -420,7 +420,10 @@
                     "uses_bundled_fallback"
                 ]
             %}
-                <p class="notice notice-info">
+                <p
+                    class="notice notice-info"
+                    role="status"
+                >
                     The application is using the bundled dataset.
                 </p>
             {% elif
@@ -428,7 +431,10 @@
                     "uses_local_cache"
                 ]
             %}
-                <p class="notice notice-success">
+                <p
+                    class="notice notice-success"
+                    role="status"
+                >
                     The application is using a newer local cache.
                 </p>
             {% elif

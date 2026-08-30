@@ -595,6 +595,141 @@ class HomeChampionReferenceStatusTemplateTests(
             html,
         )
 
+    def test_reference_source_notices_use_status_semantics(
+        self
+    ):
+        source_states = [
+            (
+                self._build_status(),
+                'class="notice notice-info"',
+                (
+                    "The application is using "
+                    "the bundled dataset."
+                ),
+            ),
+            (
+                self._build_status(
+                    active_source="local_cache",
+                    active_source_label="Local cache",
+                    uses_bundled_fallback=False,
+                    uses_local_cache=True,
+                ),
+                'class="notice notice-success"',
+                (
+                    "The application is using "
+                    "a newer local cache."
+                ),
+            ),
+        ]
+
+        for (
+            status,
+            expected_class,
+            expected_message,
+        ) in source_states:
+            with self.subTest(
+                expected_message=expected_message,
+            ):
+                reference_section = (
+                    self._get_reference_section(
+                        self._get_home_html(status)
+                    )
+                )
+
+                notices = [
+                    (attributes, " ".join(message.split()))
+                    for attributes, message in re.findall(
+                        r"<p\b(?P<attributes>[^>]*)>"
+                        r"(?P<message>.*?)</p>",
+                        reference_section,
+                        flags=re.DOTALL,
+                    )
+                    if " ".join(message.split())
+                    == expected_message
+                ]
+
+                self.assertEqual(
+                    len(notices),
+                    1,
+                )
+
+                attributes, message = notices[0]
+
+                self.assertIn(
+                    expected_class,
+                    attributes,
+                )
+
+                self.assertEqual(
+                    attributes.count('role="status"'),
+                    1,
+                )
+
+                self.assertNotIn(
+                    'role="alert"',
+                    attributes,
+                )
+
+                self.assertEqual(
+                    message,
+                    expected_message,
+                )
+
+                source_badges = re.findall(
+                    r'<span\b[^>]*class="badge[^>]*>',
+                    reference_section,
+                )
+
+                self.assertEqual(
+                    len(source_badges),
+                    1,
+                )
+
+                self.assertNotIn(
+                    "role=",
+                    source_badges[0],
+                )
+
+        database_only_section = (
+            self._get_reference_section(
+                self._get_home_html(
+                    self._build_status(
+                        active_source="database_only",
+                        active_source_label="Database only",
+                        reference_data_available=False,
+                        uses_bundled_fallback=False,
+                        database_only=True,
+                        version=None,
+                        locale=None,
+                        dataset_count=None,
+                        last_update_error=(
+                            "The update failed safely."
+                        ),
+                        warnings=["Reference data warning."],
+                    )
+                )
+            )
+        )
+
+        self.assertRegex(
+            database_only_section,
+            r'<p\b[^>]*class="notice notice-warning"'
+            r'[^>]*role="status"[^>]*>\s*'
+            r'The reference data is unavailable.',
+        )
+
+        self.assertRegex(
+            database_only_section,
+            r'<div\b[^>]*class="notice notice-warning"'
+            r'[^>]*role="status"[^>]*>',
+        )
+
+        self.assertRegex(
+            database_only_section,
+            r'<p\b[^>]*class="notice notice-error"'
+            r'[^>]*role="alert"[^>]*>',
+        )
+
     def test_database_only_fallback_is_explained(
         self
     ):
