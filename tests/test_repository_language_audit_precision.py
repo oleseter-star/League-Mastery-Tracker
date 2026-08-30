@@ -1,5 +1,6 @@
 from pathlib import Path
 from tempfile import TemporaryDirectory
+import subprocess
 import unittest
 
 from application.services.repository_language_audit_service import (
@@ -16,6 +17,8 @@ class RepositoryLanguageAuditPrecisionTests(
         self.project_root = Path(
             self.temporary_directory.name
         )
+
+        self.tracked_paths = set()
 
     def tearDown(self):
         self.temporary_directory.cleanup()
@@ -40,9 +43,23 @@ class RepositoryLanguageAuditPrecisionTests(
             encoding="utf-8",
         )
 
-    def _audit(self):
+        self.tracked_paths.add(
+            Path(relative_path).as_posix()
+        )
+
+    def _audit(
+        self,
+        *,
+        intentional_exceptions=(),
+    ):
         return RepositoryLanguageAuditService(
             project_root=self.project_root,
+            tracked_paths=tuple(
+                sorted(self.tracked_paths)
+            ),
+            intentional_exceptions=(
+                intentional_exceptions
+            ),
         ).audit()
 
     def test_english_product_terminology_is_not_reported(
@@ -122,7 +139,24 @@ class RepositoryLanguageAuditPrecisionTests(
         )
 
         self.assertEqual(
-            self._audit(),
+            self._audit(
+                intentional_exceptions=(
+                    {
+                        "path": "tests/test_unicode_fixture.py",
+                        "line": 'PERSON_NAME = "Bjørn"',
+                        "finding_type": "norwegian_character",
+                        "reason": "Intentional Person-name fixture.",
+                    },
+                    {
+                        "path": "tests/test_unicode_fixture.py",
+                        "line": (
+                            'SECOND_PERSON_NAME = "Ægir Export"'
+                        ),
+                        "finding_type": "norwegian_character",
+                        "reason": "Intentional Person-name fixture.",
+                    },
+                ),
+            ),
             [],
         )
 
@@ -165,6 +199,112 @@ class RepositoryLanguageAuditPrecisionTests(
             "fortsatt",
             findings[0]["matched_terms"],
         )
+
+
+class CurrentRepositoryLanguageAuditTests(
+    unittest.TestCase
+):
+    @classmethod
+    def setUpClass(cls):
+        cls.project_root = (
+            Path(__file__).resolve().parent.parent
+        )
+
+    def _audit_repository(self):
+        service = RepositoryLanguageAuditService(
+            project_root=self.project_root,
+        )
+        audit_repository = getattr(
+            service,
+            "audit_repository",
+            None,
+        )
+        self.assertIsNotNone(
+            audit_repository,
+            "The production audit must expose tracked-file outcomes.",
+        )
+        return service, audit_repository()
+
+    def test_current_tracked_repository_is_clean(
+        self,
+    ):
+        _service, result = self._audit_repository()
+
+        failure_details = "\n".join(
+            (
+                f'{finding["path"]}:'
+                f'{finding["line_number"]} '
+                f'{finding["category"]}/'
+                f'{finding["finding_type"]}: '
+                f'{", ".join(finding["matched_terms"])}'
+            )
+            for finding in result["findings"]
+        )
+
+        self.assertEqual(
+            result["findings"],
+            [],
+            failure_details,
+        )
+        self.assertEqual(
+            result["counts"]["audit_error"],
+            0,
+            failure_details,
+        )
+        self.assertEqual(
+            len(result["tracked_paths"]),
+            len(result["outcomes"]),
+        )
+
+    def test_production_path_set_matches_git_ls_files_exactly(
+        self,
+    ):
+        service, _result = self._audit_repository()
+
+        completed_process = subprocess.run(
+            ["git", "ls-files", "-z"],
+            cwd=self.project_root,
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+
+        expected_paths = tuple(
+            path_bytes.decode(
+                "utf-8",
+                errors="surrogateescape",
+            )
+            for path_bytes in completed_process.stdout.split(b"\0")
+            if path_bytes
+        )
+
+        self.assertEqual(
+            service.get_tracked_paths(),
+            expected_paths,
+        )
+
+    def test_default_exceptions_are_narrow_and_documented(
+        self,
+    ):
+        _service, result = self._audit_repository()
+
+        self.assertGreater(
+            len(result["applied_exceptions"]),
+            0,
+        )
+
+        for exception in result["applied_exceptions"]:
+            self.assertTrue(exception["path"])
+            self.assertTrue(exception["line"])
+            self.assertIn(
+                exception["finding_type"],
+                {
+                    "norwegian_character",
+                    "norwegian_vocabulary",
+                    "controlled_terminology",
+                },
+            )
+            self.assertTrue(exception["reason"])
 
 
 if __name__ == "__main__":

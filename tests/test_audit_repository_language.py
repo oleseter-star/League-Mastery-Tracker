@@ -21,6 +21,26 @@ class AuditRepositoryLanguageTests(
     def tearDown(self):
         self.temporary_directory.cleanup()
 
+    @staticmethod
+    def _result(findings=()):
+        findings = list(findings)
+        return {
+            "tracked_paths": (),
+            "outcomes": (),
+            "findings": findings,
+            "counts": {
+                "tracked_files": 0,
+                "audited_text": 0,
+                "intentional_binary_exclusion": 0,
+                "controlled_non_language_exclusion": 0,
+                "audit_error": sum(
+                    finding.get("category") == "audit_error"
+                    for finding in findings
+                ),
+            },
+            "applied_exceptions": (),
+        }
+
     def test_clean_repository_returns_zero(
         self,
     ):
@@ -28,7 +48,9 @@ class AuditRepositoryLanguageTests(
             audit_repository_language,
             "RepositoryLanguageAuditService",
         ) as service_class:
-            service_class.return_value.audit.return_value = []
+            service_class.return_value.audit_repository.return_value = (
+                self._result()
+            )
 
             standard_output = io.StringIO()
 
@@ -47,7 +69,7 @@ class AuditRepositoryLanguageTests(
         )
 
         self.assertIn(
-            "No Norwegian project-owned prose was found.",
+            "Repository language audit passed",
             standard_output.getvalue(),
         )
 
@@ -70,8 +92,8 @@ class AuditRepositoryLanguageTests(
             audit_repository_language,
             "RepositoryLanguageAuditService",
         ) as service_class:
-            service_class.return_value.audit.return_value = (
-                findings
+            service_class.return_value.audit_repository.return_value = (
+                self._result(findings)
             )
 
             standard_output = io.StringIO()
@@ -124,8 +146,8 @@ class AuditRepositoryLanguageTests(
             audit_repository_language,
             "RepositoryLanguageAuditService",
         ) as service_class:
-            service_class.return_value.audit.return_value = (
-                findings
+            service_class.return_value.audit_repository.return_value = (
+                self._result(findings)
             )
 
             standard_output = io.StringIO()
@@ -182,7 +204,9 @@ class AuditRepositoryLanguageTests(
             audit_repository_language,
             "RepositoryLanguageAuditService",
         ) as service_class:
-            service_class.return_value.audit.return_value = []
+            service_class.return_value.audit_repository.return_value = (
+                self._result()
+            )
 
             audit_repository_language.main(
                 project_root=self.project_root
@@ -192,39 +216,39 @@ class AuditRepositoryLanguageTests(
             project_root=(
                 self.project_root.resolve()
             ),
-            allowlisted_paths=(),
-            allowlisted_phrases=(),
+            intentional_exceptions=(),
         )
 
-    def test_allowlists_are_forwarded(
+    def test_intentional_exceptions_are_forwarded(
         self,
     ):
+        intentional_exceptions = (
+            {
+                "path": "tests/fixtures/legacy.txt",
+                "line": 'MESSAGE = "Ingen oversettelse"',
+                "finding_type": "norwegian_vocabulary",
+                "reason": "Deliberate detector fixture.",
+            },
+        )
+
         with patch.object(
             audit_repository_language,
             "RepositoryLanguageAuditService",
         ) as service_class:
-            service_class.return_value.audit.return_value = []
+            service_class.return_value.audit_repository.return_value = (
+                self._result()
+            )
 
             audit_repository_language.main(
                 project_root=self.project_root,
-                allowlisted_paths=(
-                    "tests/fixtures/legacy.txt",
-                ),
-                allowlisted_phrases=(
-                    "Ingen oversettelse",
-                ),
+                intentional_exceptions=intentional_exceptions,
             )
 
         service_class.assert_called_once_with(
             project_root=(
                 self.project_root.resolve()
             ),
-            allowlisted_paths=(
-                "tests/fixtures/legacy.txt",
-            ),
-            allowlisted_phrases=(
-                "Ingen oversettelse",
-            ),
+            intentional_exceptions=intentional_exceptions,
         )
 
     def test_unexpected_failure_is_controlled(
@@ -234,7 +258,7 @@ class AuditRepositoryLanguageTests(
             audit_repository_language,
             "RepositoryLanguageAuditService",
         ) as service_class:
-            service_class.return_value.audit.side_effect = (
+            service_class.return_value.audit_repository.side_effect = (
                 OSError(
                     "C:\\private\\repository"
                 )
@@ -267,6 +291,235 @@ class AuditRepositoryLanguageTests(
             "C:\\private",
             output,
         )
+
+
+class AuditRepositoryLanguageTrackedContractTests(
+    unittest.TestCase
+):
+    def setUp(self):
+        self.temporary_directory = TemporaryDirectory()
+        self.project_root = Path(
+            self.temporary_directory.name
+        )
+
+    def tearDown(self):
+        self.temporary_directory.cleanup()
+
+    @staticmethod
+    def _clean_result():
+        return {
+            "tracked_paths": ("README.md", "image.png"),
+            "outcomes": (
+                {
+                    "path": "README.md",
+                    "outcome": "audited_text",
+                    "encoding": "utf-8",
+                },
+                {
+                    "path": "image.png",
+                    "outcome": (
+                        "intentional_binary_exclusion"
+                    ),
+                    "encoding": None,
+                },
+            ),
+            "findings": [],
+            "counts": {
+                "tracked_files": 2,
+                "audited_text": 1,
+                "intentional_binary_exclusion": 1,
+                "controlled_non_language_exclusion": 0,
+                "audit_error": 0,
+            },
+            "applied_exceptions": (),
+        }
+
+    def test_clean_audit_reports_concise_outcome_counts(
+        self,
+    ):
+        with patch.object(
+            audit_repository_language,
+            "RepositoryLanguageAuditService",
+        ) as service_class:
+            service_class.return_value.audit_repository.return_value = (
+                self._clean_result()
+            )
+
+            standard_output = io.StringIO()
+
+            with redirect_stdout(standard_output):
+                exit_code = audit_repository_language.main(
+                    project_root=self.project_root
+                )
+
+        self.assertEqual(exit_code, 0)
+        output = standard_output.getvalue()
+        self.assertIn("2 tracked files", output)
+        self.assertIn("1 audited text", output)
+        self.assertIn("1 intentional binary exclusion", output)
+        self.assertIn("0 audit errors", output)
+        self.assertLessEqual(len(output.splitlines()), 3)
+
+    def test_controlled_audit_error_returns_nonzero(
+        self,
+    ):
+        result = self._clean_result()
+        result["findings"] = [
+            {
+                "path": "broken.txt",
+                "line_number": 0,
+                "category": "audit_error",
+                "finding_type": "audit_error",
+                "matched_terms": ("unsupported_encoding",),
+                "line": "Tracked text could not be decoded.",
+            },
+        ]
+        result["counts"] = {
+            **result["counts"],
+            "audit_error": 1,
+        }
+
+        with patch.object(
+            audit_repository_language,
+            "RepositoryLanguageAuditService",
+        ) as service_class:
+            service_class.return_value.audit_repository.return_value = (
+                result
+            )
+            standard_output = io.StringIO()
+
+            with redirect_stdout(standard_output):
+                exit_code = audit_repository_language.main(
+                    project_root=self.project_root
+                )
+
+        self.assertEqual(exit_code, 1)
+        output = standard_output.getvalue()
+        self.assertIn("broken.txt:0", output)
+        self.assertIn("audit_error", output)
+
+
+class RepositoryLanguageAuditArtifactTests(
+    unittest.TestCase
+):
+    @classmethod
+    def setUpClass(cls):
+        cls.project_root = Path(__file__).resolve().parent.parent
+
+    def _read_artifact(self, file_name):
+        return (self.project_root / file_name).read_text(
+            encoding="utf-8",
+        )
+
+    def _section(self, content, title, next_title=None):
+        self.assertIn(title, content)
+        section = content.split(title, 1)[1]
+        if next_title is not None:
+            self.assertIn(next_title, section)
+            section = section.split(next_title, 1)[0]
+        return section
+
+    def test_language_audit_artifact_records_current_counts(
+        self,
+    ):
+        content = self._read_artifact(
+            "Step10-language-audit.txt"
+        )
+
+        for record in (
+            "Tracked paths: 352",
+            "Audited text: 178",
+            "Intentional binary exclusions: 174",
+            "Controlled non-language exclusions: 0",
+            "Audit errors: 0",
+            "Findings: 0",
+        ):
+            self.assertEqual(content.count(record), 1)
+
+        self.assertIn(
+            "This artifact records no PyInstaller build result and no Windows acceptance result.",
+            content,
+        )
+
+    def test_test_results_artifact_distinguishes_verification_stages(
+        self,
+    ):
+        content = self._read_artifact(
+            "Step10-test-results.txt"
+        )
+        restricted = self._section(
+            content,
+            "Original restricted full-suite run",
+            "Focused elevated application-server rerun",
+        )
+        elevated = self._section(
+            content,
+            "Focused elevated application-server rerun",
+            "Reconciled Step 10.5 checkpoint",
+        )
+        reconciled = self._section(
+            content,
+            "Reconciled Step 10.5 checkpoint",
+            "Step 10.6 Slice 6 focused verification",
+        )
+        slice_six = self._section(
+            content,
+            "Step 10.6 Slice 6 focused verification",
+        )
+
+        for section, records in (
+            (
+                restricted,
+                (
+                    "Executed: 757",
+                    "Passed: 742",
+                    "Failures: 0",
+                    "Errors: 2",
+                    "Skipped: 13",
+                    "sandbox permission failures",
+                    "local loopback socket creation",
+                    "tests.test_application_server_service",
+                    "before the affected assertions ran",
+                ),
+            ),
+            (
+                elevated,
+                (
+                    "tests.test_application_server_service",
+                    "Executed: 16",
+                    "Passed: 16",
+                    "Failures: 0",
+                    "Errors: 0",
+                    "Skipped: 0",
+                    "required local socket permission",
+                    "not an unrestricted rerun",
+                ),
+            ),
+            (
+                reconciled,
+                (
+                    "Executed: 757",
+                    "Passed: 744",
+                    "Failures: 0",
+                    "Errors: 0",
+                    "Skipped: 13",
+                    "replace the two sandbox-only socket errors",
+                    "not one unrestricted all-green invocation",
+                ),
+            ),
+            (
+                slice_six,
+                (
+                    "Executed: 50",
+                    "Passed: 50",
+                    "Failures: 0",
+                    "Errors: 0",
+                    "Skipped: 0",
+                ),
+            ),
+        ):
+            for record in records:
+                self.assertIn(record, section)
 
 
 if __name__ == "__main__":
