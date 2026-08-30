@@ -441,6 +441,35 @@ class RepositoryLanguageAuditArtifactTests(
             content,
         )
 
+        self.assertIn(
+            (
+                "Step 10.14 repository-wide language verification "
+                "is complete."
+            ),
+            content,
+        )
+
+        self.assertIn(
+            (
+                "Focused verification: 54 tests passed with 0 failures, "
+                "0 errors, and 0 skips."
+            ),
+            content,
+        )
+
+        self.assertNotIn(
+            "The final focused run contains 50 tests",
+            content,
+        )
+
+        self.assertNotIn(
+            (
+                "A final repository-wide language verification remains "
+                "scheduled for Step 10.14"
+            ),
+            content,
+        )
+
     def test_test_results_artifact_distinguishes_verification_stages(
         self,
     ):
