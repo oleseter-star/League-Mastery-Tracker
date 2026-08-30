@@ -573,6 +573,83 @@ class SharedLayoutTests(
             normalized_section,
         )
 
+    def test_dashboard_action_rows_use_local_spacing_class(self):
+        """
+        Dashboard action rows should use one local spacing rule.
+        """
+
+        template = self._read_template(
+            "home.html"
+        )
+
+        self.assertNotIn(
+            "style=",
+            template,
+        )
+
+        self.assertNotIn(
+            'style="margin-top: var(--space-5);"',
+            template,
+        )
+
+        action_rows = re.findall(
+            r'<div\b[^>]*class="actions dashboard-action-row"'
+            r'[^>]*>',
+            template,
+        )
+
+        self.assertEqual(
+            len(action_rows),
+            2,
+        )
+
+        stylesheet = self._read_static_file(
+            "app.css"
+        )
+
+        self.assertEqual(
+            stylesheet.count(
+                ".dashboard-action-row"
+            ),
+            1,
+        )
+
+        declarations = self._get_stylesheet_rule(
+            ".dashboard-action-row"
+        )
+
+        self.assertIsNotNone(
+            declarations
+        )
+
+        declaration_entries = [
+            (
+                match.group(
+                    "property"
+                ),
+                " ".join(
+                    match.group(
+                        "value"
+                    ).split()
+                ),
+            )
+            for match in re.finditer(
+                r"(?P<property>[-a-z]+)\s*:\s*"
+                r"(?P<value>[^;]+);",
+                declarations,
+            )
+        ]
+
+        self.assertEqual(
+            declaration_entries,
+            [
+                (
+                    "margin-top",
+                    "var(--space-5)",
+                ),
+            ],
+        )
+
     def test_application_version_uses_three_part_semantic_version(self):
         """
         The product release version should use major.minor.patch form.
