@@ -1,17 +1,19 @@
-Step 10 verification status
-===========================
+Step 10.15 full automated regression verification is complete.
 
 Original restricted full-suite run
 ----------------------------------
-Executed: 757
-Passed: 742
+Modules: 87
+Executed: 783
+Passed: 768
 Failures: 0
 Errors: 2
 Skipped: 13
+Elapsed: 72.930 seconds
 
-The two errors were sandbox permission failures during
-local loopback socket creation in `tests.test_application_server_service`,
-before the affected assertions ran.
+The full suite ran exactly once in the restricted environment. Both errors
+were sandbox-only PermissionError failures during local loopback
+ephemeral-socket setup in `tests.test_application_server_service`, before the
+affected assertions ran.
 
 Focused elevated application-server rerun
 -----------------------------------------
@@ -22,33 +24,26 @@ Failures: 0
 Errors: 0
 Skipped: 0
 
-This focused module rerun used the required local socket permission. It was
-not an unrestricted rerun of the complete 757-test suite.
+The elevated run was focused, not a second full-suite run, and used the
+required local socket permission.
 
-Reconciled Step 10.5 checkpoint
--------------------------------
-Executed: 757
-Passed: 744
+Reconciled Step 10.15 result
+----------------------------
+Executed: 783
+Passed: 770
 Failures: 0
 Errors: 0
 Skipped: 13
 
-The reconciled totals replace the two sandbox-only socket errors with their
-passing focused results. They are not one unrestricted all-green invocation
-of the complete suite.
+Reconciliation replaces only those two errors with their successful focused
+results. This is not a single unrestricted all-green full-suite invocation.
 
-The 13 skips were:
+Intentional skips:
 
 * 5 Windows application-instance locking tests
-* 4 encrypted Riot API-key tests requiring Windows
+* 4 encrypted Riot API-key Windows tests
 * 3 Windows DPAPI tests
-* 1 optional PyInstaller Windows-resource parser test when `pefile` is
-  unavailable
-
-This is the verified Step 10.5 integration checkpoint. Later Step 10 copy-only
-and focused-test additions mean 757 is not necessarily the current test-method
-count. The full regression suite will run again at the later major verification
-step.
+* 1 optional PyInstaller resource parser without pefile
 
 Step 10.6 Slice 6 focused verification
 ---------------------------------------
@@ -58,8 +53,5 @@ Failures: 0
 Errors: 0
 Skipped: 0
 
-The four focused language-audit modules and the supported read-only repository
-audit completed successfully.
-
-This artifact records no PyInstaller build or Windows product acceptance
-result.
+No PyInstaller build result or Windows acceptance result is recorded here.
+The new console-free Windows build remains Step 10.16.

@@ -484,11 +484,11 @@ class RepositoryLanguageAuditArtifactTests(
         elevated = self._section(
             content,
             "Focused elevated application-server rerun",
-            "Reconciled Step 10.5 checkpoint",
+            "Reconciled Step 10.15 result",
         )
         reconciled = self._section(
             content,
-            "Reconciled Step 10.5 checkpoint",
+            "Reconciled Step 10.15 result",
             "Step 10.6 Slice 6 focused verification",
         )
         slice_six = self._section(
@@ -500,15 +500,15 @@ class RepositoryLanguageAuditArtifactTests(
             (
                 restricted,
                 (
-                    "Executed: 757",
-                    "Passed: 742",
+                    "Executed: 783",
+                    "Passed: 768",
                     "Failures: 0",
                     "Errors: 2",
                     "Skipped: 13",
-                    "sandbox permission failures",
-                    "local loopback socket creation",
+                    "sandbox-only PermissionError failures",
+                    "local loopback",
                     "tests.test_application_server_service",
-                    "before the affected assertions ran",
+                    "affected assertions",
                 ),
             ),
             (
@@ -521,19 +521,19 @@ class RepositoryLanguageAuditArtifactTests(
                     "Errors: 0",
                     "Skipped: 0",
                     "required local socket permission",
-                    "not an unrestricted rerun",
+                    "not a second full-suite run",
                 ),
             ),
             (
                 reconciled,
                 (
-                    "Executed: 757",
-                    "Passed: 744",
+                    "Executed: 783",
+                    "Passed: 770",
                     "Failures: 0",
                     "Errors: 0",
                     "Skipped: 13",
-                    "replace the two sandbox-only socket errors",
-                    "not one unrestricted all-green invocation",
+                    "Reconciliation replaces only those two errors",
+                    "not a single unrestricted all-green full-suite invocation",
                 ),
             ),
             (
@@ -549,6 +549,51 @@ class RepositoryLanguageAuditArtifactTests(
         ):
             for record in records:
                 self.assertIn(record, section)
+
+        self.assertIn(
+            "Step 10.15 full automated regression verification is complete.",
+            content,
+        )
+        self.assertIn("Modules: 87", restricted)
+        self.assertIn("Elapsed: 72.930 seconds", restricted)
+        self.assertIn(
+            "The full suite ran exactly once in the restricted environment",
+            content,
+        )
+        self.assertIn(
+            "sandbox-only PermissionError failures",
+            content,
+        )
+        self.assertIn(
+            "The elevated run was focused, not a second full-suite run",
+            content,
+        )
+        self.assertIn(
+            "Reconciliation replaces only those two errors",
+            content,
+        )
+        self.assertIn(
+            "5 Windows application-instance locking",
+            content,
+        )
+        self.assertIn(
+            "4 encrypted Riot API-key Windows tests",
+            content,
+        )
+        self.assertIn("3 Windows DPAPI tests", content)
+        self.assertIn(
+            "1 optional PyInstaller resource parser without pefile",
+            content,
+        )
+        self.assertNotIn("This is the verified Step 10.5 integration checkpoint", content)
+        self.assertIn(
+            "No PyInstaller build result or Windows acceptance result is recorded here.",
+            content,
+        )
+        self.assertIn(
+            "The new console-free Windows build remains Step 10.16.",
+            content,
+        )
 
 
 if __name__ == "__main__":
