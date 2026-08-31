@@ -95,10 +95,15 @@ def save_riot_api_key():
             )
         )
 
-    except (
-        OSError,
-        ValueError,
-    ) as error:
+    except OSError:
+        flash(
+            "The Riot API key could not be saved. "
+            "A previously stored key, if any, may still be "
+            "available to League Mastery Tracker. Try again.",
+            "error",
+        )
+
+    except ValueError as error:
         flash(
             str(error),
             "error",

@@ -346,6 +346,124 @@ class SettingsApiKeyRouteTests(unittest.TestCase):
                     page,
                 )
 
+    def test_save_failure_hides_raw_operating_system_error(
+        self
+    ):
+        submitted_key = (
+            "RGAPI-synthetic-submitted-key-marker"
+        )
+
+        controlled_message = (
+            "The Riot API key could not be saved. "
+            "A previously stored key, if any, may still be "
+            "available to League Mastery Tracker. Try again."
+        )
+
+        deletion_message = (
+            "The stored Riot API key could not be removed. "
+            "It may still be available to League Mastery Tracker. "
+            "Try again."
+        )
+
+        raw_error = OSError(
+            "Directory creation denied: "
+            "C:\\Users\\Synthetic\\AppData\\Local\\LMT\\key.dpapi; "
+            "/tmp/synthetic-lmt/key.dpapi; "
+            "RGAPI-synthetic-os-error-marker"
+        )
+
+        self.app.config["CSRF_ENABLED"] = True
+
+        settings_response = self.client.get(
+            "/settings"
+        )
+
+        token_match = re.search(
+            r'name="_csrf_token"\s+value="([^"]+)"',
+            settings_response.get_data(
+                as_text=True
+            ),
+        )
+
+        self.assertIsNotNone(
+            token_match,
+        )
+
+        with patch(
+            "application.routes.settings."
+            "RiotApiKeyService.save_api_key",
+            side_effect=raw_error,
+        ) as save_api_key:
+            response = self.client.post(
+                "/settings/riot-api-key",
+                data={
+                    "_csrf_token": token_match.group(1),
+                    "api_key": submitted_key,
+                },
+                follow_redirects=True,
+            )
+
+        self.assertEqual(
+            response.status_code,
+            200,
+        )
+
+        self.assertEqual(
+            response.request.path,
+            "/settings",
+        )
+
+        save_api_key.assert_called_once_with(
+            submitted_key
+        )
+
+        page = response.get_data(
+            as_text=True
+        )
+
+        self.assertEqual(
+            page.count(controlled_message),
+            1,
+        )
+
+        self.assertRegex(
+            page,
+            r'<p\s+class="flash flash-error"[^>]*role="alert"',
+        )
+
+        self.assertNotIn(
+            "The Riot API key was saved.",
+            page,
+        )
+
+        self.assertNotIn(
+            deletion_message,
+            page,
+        )
+
+        self.assertNotIn(
+            str(raw_error),
+            page,
+        )
+
+        for sensitive_detail in (
+            r"C:\\Users\\Synthetic\\AppData",
+            "/tmp/synthetic-lmt",
+            "Directory creation denied",
+            "key.dpapi",
+            "RGAPI-synthetic-submitted-key-marker",
+            "RGAPI-synthetic-os-error-marker",
+            "Traceback",
+            "OSError",
+        ):
+            with self.subTest(
+                sensitive_detail=sensitive_detail,
+            ):
+                self.assertNotIn(
+                    sensitive_detail,
+                    page,
+                )
+
 
 if __name__ == "__main__":
     unittest.main()
