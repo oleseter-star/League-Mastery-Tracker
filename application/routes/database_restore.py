@@ -36,12 +36,16 @@ def get_database_restore():
             .get_restore_candidates()
         )
 
-    except (
-        DatabaseRestoreError,
-        OSError,
-    ) as error:
+    except DatabaseRestoreError as error:
         restore_candidates_error = str(
             error
+        )
+
+    except OSError:
+        restore_candidates_error = (
+            "Available database backups could not be listed. "
+            "Your current application data is unchanged. "
+            "Try again."
         )
 
     try:

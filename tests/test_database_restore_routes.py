@@ -2,6 +2,7 @@ import sqlite3
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest.mock import patch
 
 from flask import Flask
 
@@ -383,6 +384,97 @@ class DatabaseRestoreRouteTests(unittest.TestCase):
             b"This backup cannot be restored",
             response.data,
         )
+
+    def test_candidate_listing_failure_hides_raw_operating_system_error(
+        self,
+    ):
+        file_name = (
+            "league_mastery_tracker_"
+            "20260716T140005000000Z.db"
+        )
+
+        self._create_backup(
+            file_name
+        )
+
+        controlled_message = (
+            "Available database backups could not be listed. "
+            "Your current application data is unchanged. "
+            "Try again."
+        )
+
+        raw_error = OSError(
+            "Directory access denied: "
+            "C:\\Users\\Synthetic\\AppData\\Local\\LMT\\backups; "
+            "/tmp/synthetic-lmt/backups; "
+            "SQLITE-synthetic-database-marker"
+        )
+
+        with patch(
+            "application.routes.database_restore."
+            "DatabaseRestoreService.get_restore_candidates",
+            side_effect=raw_error,
+        ) as get_restore_candidates:
+            response = self.client.get(
+                "/settings/database-restore"
+            )
+
+        self.assertEqual(
+            response.status_code,
+            200,
+        )
+
+        self.assertEqual(
+            response.request.path,
+            "/settings/database-restore",
+        )
+
+        get_restore_candidates.assert_called_once_with()
+
+        page = response.get_data(
+            as_text=True
+        )
+
+        self.assertIn(
+            "Available backups",
+            page,
+        )
+
+        self.assertEqual(
+            page.count(controlled_message),
+            1,
+        )
+
+        self.assertRegex(
+            page,
+            r'<div\s+class="notice notice-error"\s+role="alert"\s*>',
+        )
+
+        self.assertNotIn(
+            file_name,
+            page,
+        )
+
+        self.assertNotIn(
+            str(raw_error),
+            page,
+        )
+
+        for sensitive_detail in (
+            r"C:\\Users\\Synthetic\\AppData",
+            "/tmp/synthetic-lmt",
+            "Directory access denied",
+            "SQLITE-synthetic-database-marker",
+            "Traceback",
+            "OSError",
+        ):
+            with self.subTest(
+                sensitive_detail=sensitive_detail,
+            ):
+                self.assertNotIn(
+                    sensitive_detail,
+                    page,
+                )
 
 
 if __name__ == "__main__":
