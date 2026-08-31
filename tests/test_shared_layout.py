@@ -257,6 +257,61 @@ class SharedLayoutTests(
             )
         }
 
+    @staticmethod
+    def _parse_hex_color(value):
+        normalized_value = value.lstrip("#")
+
+        return tuple(
+            int(
+                normalized_value[index:index + 2],
+                16,
+            )
+            for index in range(0, 6, 2)
+        )
+
+    @staticmethod
+    def _relative_luminance(color):
+        def linearize(channel):
+            normalized_channel = channel / 255
+
+            if normalized_channel <= 0.04045:
+                return normalized_channel / 12.92
+
+            return (
+                (normalized_channel + 0.055) / 1.055
+            ) ** 2.4
+
+        red, green, blue = (
+            linearize(channel)
+            for channel in color
+        )
+
+        return (
+            0.2126 * red
+            + 0.7152 * green
+            + 0.0722 * blue
+        )
+
+    @classmethod
+    def _contrast_ratio(
+        cls,
+        first_color,
+        second_color,
+    ):
+        first_luminance = cls._relative_luminance(
+            first_color
+        )
+        second_luminance = cls._relative_luminance(
+            second_color
+        )
+
+        lighter, darker = sorted(
+            (first_luminance, second_luminance),
+            reverse=True,
+        )
+
+        return (lighter + 0.05) / (darker + 0.05)
+
     @classmethod
     def _render_persons_page(
         cls,
@@ -1759,6 +1814,88 @@ class SharedLayoutTests(
         self.assertIn(
             "--color-focus:",
             content,
+        )
+
+    def test_default_form_control_boundary_meets_non_text_contrast(self):
+        """
+        Default native control boundaries need at least 3:1 contrast.
+        """
+
+        tokens = self._get_stylesheet_root_tokens()
+        declarations = self._get_stylesheet_rule(
+            'input[type="text"]'
+        )
+
+        self.assertEqual(
+            tokens.get("--color-bg-subtle"),
+            "#111827",
+        )
+
+        self.assertIsNotNone(declarations)
+
+        for selector in (
+            'input[type="text"]',
+            'input[type="password"]',
+            'input[type="file"]',
+            "select",
+            "textarea",
+        ):
+            with self.subTest(selector=selector):
+                selector_declarations = (
+                    self._get_stylesheet_rule(selector)
+                )
+
+                self.assertIsNotNone(selector_declarations)
+                self.assertIn(
+                    "var(--color-border-strong)",
+                    selector_declarations,
+                )
+                self.assertIn(
+                    "var(--color-bg-subtle)",
+                    selector_declarations,
+                )
+
+        self.assertIn(
+            "var(--color-border-strong)",
+            declarations,
+        )
+        self.assertIn(
+            "var(--color-bg-subtle)",
+            declarations,
+        )
+
+        hover_declarations = self._get_stylesheet_rule(
+            "input:hover"
+        )
+        focus_declarations = self._get_stylesheet_rule(
+            "input:focus-visible"
+        )
+
+        self.assertIn(
+            "var(--color-control-border-hover)",
+            hover_declarations,
+        )
+        self.assertIn(
+            "var(--color-focus)",
+            focus_declarations,
+        )
+
+        contrast_ratio = self._contrast_ratio(
+            self._parse_hex_color(
+                tokens["--color-border-strong"]
+            ),
+            self._parse_hex_color(
+                tokens["--color-bg-subtle"]
+            ),
+        )
+
+        self.assertGreaterEqual(
+            contrast_ratio,
+            3.0,
+            (
+                "Default form-control boundary contrast is "
+                f"{contrast_ratio:.2f}:1, below 3:1."
+            ),
         )
 
     def test_stylesheet_marks_current_primary_navigation_semantically(self):
