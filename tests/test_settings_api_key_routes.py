@@ -1,3 +1,4 @@
+import re
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -253,6 +254,97 @@ class SettingsApiKeyRouteTests(unittest.TestCase):
             "Remove locally stored key",
             normalized_page,
         )
+
+    def test_delete_failure_hides_raw_operating_system_error(
+        self
+    ):
+        controlled_message = (
+            "The stored Riot API key could not be removed. "
+            "It may still be available to League Mastery Tracker. "
+            "Try again."
+        )
+
+        raw_error = OSError(
+            "Permission denied: "
+            "C:\\Users\\Synthetic\\AppData\\Local\\LMT\\key.dpapi; "
+            "/tmp/synthetic-lmt/key.dpapi; "
+            "RGAPI-synthetic-secret-marker"
+        )
+
+        self.app.config["CSRF_ENABLED"] = True
+
+        settings_response = self.client.get(
+            "/settings"
+        )
+
+        token_match = re.search(
+            r'name="_csrf_token"\s+value="([^"]+)"',
+            settings_response.get_data(
+                as_text=True
+            ),
+        )
+
+        self.assertIsNotNone(
+            token_match,
+        )
+
+        with patch(
+            "application.routes.settings."
+            "RiotApiKeyService.delete_local_api_key",
+            side_effect=raw_error,
+        ) as delete_local_api_key:
+            response = self.client.post(
+                "/settings/riot-api-key/delete",
+                data={
+                    "_csrf_token": token_match.group(1),
+                },
+                follow_redirects=True,
+            )
+
+        self.assertEqual(
+            response.status_code,
+            200,
+        )
+
+        self.assertEqual(
+            response.request.path,
+            "/settings",
+        )
+
+        delete_local_api_key.assert_called_once_with()
+
+        page = response.get_data(
+            as_text=True
+        )
+
+        self.assertEqual(
+            page.count(controlled_message),
+            1,
+        )
+
+        self.assertRegex(
+            page,
+            r'<p\s+class="flash flash-error"[^>]*role="alert"',
+        )
+
+        self.assertNotIn(
+            str(raw_error),
+            page,
+        )
+
+        for sensitive_detail in (
+            r"C:\\Users\\Synthetic\\AppData",
+            "/tmp/synthetic-lmt",
+            "Permission denied",
+            "RGAPI-synthetic-secret-marker",
+        ):
+            with self.subTest(
+                sensitive_detail=sensitive_detail,
+            ):
+                self.assertNotIn(
+                    sensitive_detail,
+                    page,
+                )
 
 
 if __name__ == "__main__":

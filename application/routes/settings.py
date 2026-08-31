@@ -133,9 +133,11 @@ def delete_riot_api_key():
             .delete_local_api_key()
         )
 
-    except OSError as error:
+    except OSError:
         flash(
-            str(error),
+            "The stored Riot API key could not be removed. "
+            "It may still be available to League Mastery Tracker. "
+            "Try again.",
             "error",
         )
 
