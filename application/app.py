@@ -335,11 +335,14 @@ def _run_startup_backup(
         OSError,
         sqlite3.Error,
         ValueError,
-    ) as error:
+    ):
         app.config[
             "STARTUP_BACKUP_ERROR"
-        ] = str(
-            error
+        ] = (
+            "The automatic startup database backup could not be "
+            "completed. League Mastery Tracker continued without "
+            "a confirmed new startup backup. Try creating a manual "
+            "database backup."
         )
 
     else:

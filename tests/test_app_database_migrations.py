@@ -139,6 +139,47 @@ class AppDatabaseMigrationTests(unittest.TestCase):
 
         return app
 
+    def _create_current_database(self):
+        connection = sqlite3.connect(
+            str(self.database_file)
+        )
+
+        try:
+            connection.execute(
+                """
+                CREATE TABLE application_metadata (
+                    key TEXT PRIMARY KEY NOT NULL,
+                    value TEXT NOT NULL
+                )
+                """
+            )
+
+            connection.execute(
+                """
+                INSERT INTO application_metadata (
+                    key,
+                    value
+                )
+                VALUES (
+                    ?,
+                    ?
+                )
+                """,
+                (
+                    "database_schema_version",
+                    str(
+                        app_module
+                        .DatabaseMigrationService
+                        .CURRENT_DATABASE_SCHEMA_VERSION
+                    ),
+                ),
+            )
+
+            connection.commit()
+
+        finally:
+            connection.close()
+
     def test_new_database_is_versioned_without_backup(self):
         app = self._create_app()
 
@@ -300,6 +341,141 @@ class AppDatabaseMigrationTests(unittest.TestCase):
                 self.backup_directory.glob("*.db")
             ),
             [],
+        )
+
+    def _assert_automatic_startup_backup_failure_is_safe(
+        self,
+        raw_error,
+        sensitive_details,
+    ):
+        controlled_message = (
+            "The automatic startup database backup could not be "
+            "completed. League Mastery Tracker continued without "
+            "a confirmed new startup backup. Try creating a manual "
+            "database backup."
+        )
+
+        self._create_current_database()
+
+        with patch.object(
+            app_module.BackupService,
+            "create_backup_if_due",
+            side_effect=raw_error,
+        ) as create_backup_if_due:
+            app = self._create_app()
+
+        create_backup_if_due.assert_called_once_with()
+
+        response = app.test_client().get(
+            "/settings"
+        )
+
+        self.assertEqual(
+            response.status_code,
+            200,
+        )
+
+        page = response.get_data(
+            as_text=True
+        )
+
+        self.assertEqual(
+            page.count(controlled_message),
+            1,
+        )
+
+        self.assertRegex(
+            page,
+            r'<p\s+class="notice notice-error"\s+'
+            r'role="alert"\s*>',
+        )
+
+        self.assertNotIn(
+            "Database backup created:",
+            page,
+        )
+
+        self.assertNotIn(
+            "league_mastery_tracker_",
+            page,
+        )
+
+        self.assertIn(
+            "Riot API key",
+            page,
+        )
+
+        self.assertIn(
+            "Create backup now",
+            page,
+        )
+
+        self.assertNotIn(
+            str(raw_error),
+            page,
+        )
+
+        for sensitive_detail in (
+            *sensitive_details,
+            "Traceback",
+            "OSError",
+            "DatabaseError",
+            "ValueError",
+        ):
+            with self.subTest(
+                sensitive_detail=sensitive_detail,
+            ):
+                self.assertNotIn(
+                    sensitive_detail,
+                    page,
+                )
+
+    def test_automatic_startup_backup_os_error_hides_raw_details(
+        self
+    ):
+        self._assert_automatic_startup_backup_failure_is_safe(
+            OSError(
+                "Directory permission denied: "
+                "C:\\Users\\Synthetic\\AppData\\Local\\LMT\\backups; "
+                "/tmp/synthetic-lmt/backups; "
+                "RGAPI-synthetic-startup-marker"
+            ),
+            (
+                r"C:\\Users\\Synthetic\\AppData",
+                "/tmp/synthetic-lmt",
+                "Directory permission denied",
+                "RGAPI-synthetic-startup-marker",
+            ),
+        )
+
+    def test_automatic_startup_backup_sqlite_error_hides_raw_details(
+        self
+    ):
+        self._assert_automatic_startup_backup_failure_is_safe(
+            sqlite3.DatabaseError(
+                "SQLite backup failure: "
+                "database disk image is malformed; "
+                "SQLITE-synthetic-startup-marker"
+            ),
+            (
+                "SQLite backup failure",
+                "database disk image is malformed",
+                "SQLITE-synthetic-startup-marker",
+            ),
+        )
+
+    def test_automatic_startup_backup_validation_error_hides_raw_details(
+        self
+    ):
+        self._assert_automatic_startup_backup_failure_is_safe(
+            ValueError(
+                "Backup validation failed: "
+                "synthetic-validation-directory-marker"
+            ),
+            (
+                "Backup validation failed",
+                "synthetic-validation-directory-marker",
+            ),
         )
 
 
