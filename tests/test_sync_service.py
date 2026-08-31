@@ -1,5 +1,6 @@
 import unittest
 from datetime import datetime, timedelta, timezone
+from unittest.mock import patch
 
 from flask import Flask
 
@@ -456,6 +457,261 @@ class SyncServiceTestCase(unittest.TestCase):
             preserved_account.last_sync,
             old_sync_time,
         )
+
+    def test_batch_failure_hides_exception_and_rolls_back_changes(self):
+        """
+        An arbitrary per-account failure must preserve that account's
+        cached mastery, omit implementation details, and allow the
+        following account to synchronize.
+        """
+
+        old_sync_time = (
+            datetime.now(timezone.utc)
+            - timedelta(days=2)
+        ).replace(
+            tzinfo=None
+        )
+
+        failing_account = self.create_account(
+            puuid="puuid-failing-batch",
+            game_name="Failing",
+            last_sync=old_sync_time,
+        )
+
+        successful_account = self.create_account(
+            puuid="puuid-successful-batch",
+            game_name="Successful",
+        )
+
+        champion = Champion(
+            riot_champion_id=103,
+            name="Ahri",
+            image=None,
+            source="manual",
+        )
+
+        db.session.add(
+            champion
+        )
+
+        db.session.flush()
+
+        db.session.add(
+            ChampionMastery(
+                riot_account_id=failing_account.id,
+                champion_id=champion.id,
+                mastery_points=50000,
+            )
+        )
+
+        db.session.commit()
+
+        raw_error = (
+            "HTTP transaction failure at "
+            "C:\\Users\\Synthetic\\AppData\\backup.db; "
+            "/tmp/synthetic/mastery.db; "
+            "RGAPI-SYNTHETIC-KEY-MARKER; "
+            "puuid-synthetic-leak-marker; "
+            "RuntimeError-representation-marker; "
+            "Traceback (most recent call last):\n"
+            '  File "SYNTHETIC_TRACEBACK_FRAME_BATCH_SYNC.py", '
+            "line 1, in synthetic_batch_sync\n"
+            "RuntimeError: SYNTHETIC_TRACEBACK_TERMINAL_BATCH_SYNC"
+        )
+
+        fake_riot_service = FakeRiotService(
+            mastery_by_puuid={
+                "puuid-successful-batch": [
+                    {
+                        "championId": 266,
+                        "championPoints": 12345,
+                    }
+                ]
+            }
+        )
+
+        service = SyncService(
+            riot_service=fake_riot_service
+        )
+
+        original_sync_mastery = service.sync_mastery
+        processed_account_ids = []
+
+        def sync_one_account(riot_account_id):
+            processed_account_ids.append(
+                riot_account_id
+            )
+
+            if riot_account_id == failing_account.id:
+                staged_mastery = (
+                    ChampionMastery.query.filter_by(
+                        riot_account_id=failing_account.id,
+                        champion_id=champion.id,
+                    ).one()
+                )
+
+                staged_mastery.mastery_points = 999999
+                db.session.flush()
+
+                raise RuntimeError(raw_error)
+
+            return original_sync_mastery(
+                riot_account_id=riot_account_id
+            )
+
+        with patch.object(
+            service,
+            "sync_mastery",
+            side_effect=sync_one_account,
+        ), patch.object(
+            db.session,
+            "rollback",
+            wraps=db.session.rollback,
+        ) as rollback:
+            result = service.sync_all_accounts()
+
+        self.assertIsInstance(
+            result,
+            dict,
+        )
+
+        self.assertEqual(
+            list(result),
+            [
+                "mode",
+                "total_accounts",
+                "selected_accounts",
+                "updated",
+                "skipped",
+                "failed",
+                "failures",
+            ],
+        )
+
+        self.assertEqual(
+            processed_account_ids,
+            [
+                failing_account.id,
+                successful_account.id,
+            ],
+        )
+
+        self.assertEqual(
+            result["updated"],
+            1,
+        )
+
+        self.assertEqual(
+            result["failed"],
+            1,
+        )
+
+        failure = result["failures"][0]
+
+        self.assertEqual(
+            list(failure),
+            [
+                "riot_account_id",
+                "riot_id",
+                "error",
+            ],
+        )
+
+        self.assertEqual(
+            failure["riot_account_id"],
+            failing_account.id,
+        )
+
+        self.assertEqual(
+            failure["riot_id"],
+            "Failing#TEST",
+        )
+
+        self.assertEqual(
+            failure["error"],
+            "Champion Mastery could not be synchronized. "
+            "Existing mastery data for this Riot account is unchanged. "
+            "Try again.",
+        )
+
+        rollback.assert_called_once_with()
+
+        preserved_mastery = (
+            ChampionMastery.query.filter_by(
+                riot_account_id=failing_account.id,
+                champion_id=champion.id,
+            ).one()
+        )
+
+        preserved_account = db.session.get(
+            RiotAccount,
+            failing_account.id,
+        )
+
+        successful_mastery = (
+            ChampionMastery.query.filter_by(
+                riot_account_id=successful_account.id
+            ).one()
+        )
+
+        self.assertEqual(
+            preserved_mastery.mastery_points,
+            50000,
+        )
+
+        self.assertEqual(
+            preserved_account.last_sync,
+            old_sync_time,
+        )
+
+        self.assertEqual(
+            successful_mastery.mastery_points,
+            12345,
+        )
+
+        serialized_result = repr(result)
+
+        serialized_failure_fields = [
+            repr(
+                failure["riot_account_id"]
+            ),
+            repr(
+                failure["riot_id"]
+            ),
+            repr(
+                failure["error"]
+            ),
+        ]
+
+        traceback_markers = [
+            "Traceback (most recent call last):",
+            "SYNTHETIC_TRACEBACK_FRAME_BATCH_SYNC",
+            "synthetic_batch_sync",
+            "SYNTHETIC_TRACEBACK_TERMINAL_BATCH_SYNC",
+        ]
+
+        for marker in traceback_markers:
+            for serialized_field in serialized_failure_fields:
+                self.assertNotIn(
+                    marker,
+                    serialized_field,
+                )
+
+        for marker in [
+            raw_error,
+            "C:\\Users\\Synthetic\\AppData\\backup.db",
+            "/tmp/synthetic/mastery.db",
+            "HTTP transaction failure",
+            "RGAPI-SYNTHETIC-KEY-MARKER",
+            "puuid-synthetic-leak-marker",
+            "RuntimeError-representation-marker",
+            "RuntimeError",
+            *traceback_markers,
+        ]:
+            self.assertNotIn(
+                marker,
+                serialized_result,
+            )
 
     def test_unknown_champion_is_created(self):
         """

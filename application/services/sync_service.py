@@ -378,23 +378,18 @@ class SyncService:
                     riot_account_id=riot_account.id
                 )
 
-            except Exception as error:
+            except Exception:
                 db.session.rollback()
-
-                error_message = str(
-                    error
-                ).strip()
-
-                if not error_message:
-                    error_message = (
-                        error.__class__.__name__
-                    )
 
                 failures.append(
                     {
                         "riot_account_id": riot_account.id,
                         "riot_id": riot_id,
-                        "error": error_message,
+                        "error": (
+                            "Champion Mastery could not be "
+                            "synchronized. Existing mastery data for "
+                            "this Riot account is unchanged. Try again."
+                        ),
                     }
                 )
 
