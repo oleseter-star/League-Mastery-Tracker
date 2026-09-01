@@ -1898,6 +1898,133 @@ class SharedLayoutTests(
             ),
         )
 
+    def test_shared_headings_wrap_unbroken_person_names(self):
+        """
+        Shared headings must preserve long Person names without clipping.
+        """
+
+        home_template = self._read_template(
+            "home.html"
+        )
+        person_detail_template = self._read_template(
+            "person_detail.html"
+        )
+        persons_template = self._read_template(
+            "persons.html"
+        )
+        base_template = self._read_template(
+            "base.html"
+        )
+        stylesheet = self._read_static_file(
+            "app.css"
+        )
+        shared_heading_rule = re.search(
+            r"h1\s*,\s*h2\s*,\s*h3\s*"
+            r"\{(?P<declarations>[^{}]*)\}",
+            stylesheet,
+            flags=re.DOTALL,
+        )
+        person_detail_heading = re.search(
+            r"\{% block page_heading %\}"
+            r"(?P<content>.*?)"
+            r"\{% endblock %\}",
+            person_detail_template,
+            flags=re.DOTALL,
+        )
+        base_heading = re.search(
+            r"<h1>\s*"
+            r"\{% block page_heading %\}"
+            r"\{% endblock %\}\s*"
+            r"</h1>",
+            base_template,
+            flags=re.DOTALL,
+        )
+        persons_table = re.search(
+            r"<table>.*?<tbody>"
+            r"(?P<body>.*?)"
+            r"</tbody>.*?</table>",
+            persons_template,
+            flags=re.DOTALL,
+        )
+
+        self.assertRegex(
+            home_template,
+            r"<h3>\s*\{\{ person\.display_name \}\}\s*</h3>",
+        )
+        self.assertIsNotNone(person_detail_heading)
+        self.assertEqual(
+            " ".join(
+                person_detail_heading.group(
+                    "content"
+                ).split()
+            ),
+            "{{ person.display_name }}",
+        )
+        self.assertIsNotNone(base_heading)
+        self.assertIsNotNone(persons_table)
+        self.assertIsNotNone(shared_heading_rule)
+
+        person_row = re.search(
+            r"\{% for person in persons %\}.*?"
+            r"<tr>.*?<td>.*?"
+            r"<a\b(?P<attributes>[^>]*)>"
+            r"(?P<label>.*?)"
+            r"</a>.*?</td>.*?</tr>.*?"
+            r"\{% endfor %\}",
+            persons_table.group("body"),
+            flags=re.DOTALL,
+        )
+
+        self.assertIsNotNone(person_row)
+
+        person_link_attributes = " ".join(
+            person_row.group("attributes").split()
+        )
+        person_link_label = " ".join(
+            person_row.group("label").split()
+        )
+
+        self.assertIn(
+            "persons.get_person",
+            person_link_attributes,
+        )
+        self.assertIn(
+            "person_id=person.id",
+            person_link_attributes,
+        )
+        self.assertEqual(
+            person_link_label,
+            "{{ person.display_name }}",
+        )
+        self.assertNotRegex(
+            person_link_label,
+            r"<h[1-3]\\b",
+        )
+
+        declarations = shared_heading_rule.group(
+            "declarations"
+        )
+
+        self.assertLess(
+            stylesheet.index(shared_heading_rule.group()),
+            stylesheet.index("@media"),
+        )
+        self.assertIn(
+            "overflow-wrap: anywhere;",
+            declarations,
+        )
+
+        for prohibited_declaration in (
+            "white-space: nowrap;",
+            "overflow: hidden;",
+            "text-overflow: ellipsis;",
+            "word-break: break-all;",
+        ):
+            self.assertNotIn(
+                prohibited_declaration,
+                declarations,
+            )
+
     def test_stylesheet_marks_current_primary_navigation_semantically(self):
         """
         Current navigation should remain visible without color alone.
