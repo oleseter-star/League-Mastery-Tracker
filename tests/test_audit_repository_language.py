@@ -112,6 +112,66 @@ class AuditRepositoryLanguageTests(
             1,
         )
 
+    def test_finding_path_and_line_reference_are_terminal_safe(
+        self,
+    ):
+        synthetic_path = (
+            "application/templates/base.html"
+            "\nFORGED-PATH"
+            "\r"
+            "\t"
+            "\x1b[2J"
+        )
+        synthetic_line_number = (
+            "12\nFORGED-LINE\r\t\x1b[31m"
+        )
+        findings = [
+            {
+                "path": synthetic_path,
+                "line_number": synthetic_line_number,
+                "category": "user_facing",
+                "matched_terms": ("synthetic_term",),
+                "line": "Synthetic finding message.",
+            },
+        ]
+
+        with patch.object(
+            audit_repository_language,
+            "RepositoryLanguageAuditService",
+        ) as service_class:
+            service_class.return_value.audit_repository.return_value = (
+                self._result(findings)
+            )
+            standard_output = io.StringIO()
+            standard_error = io.StringIO()
+
+            with (
+                redirect_stdout(standard_output),
+                redirect_stderr(standard_error),
+            ):
+                exit_code = audit_repository_language.main(
+                    project_root=self.project_root
+                )
+
+        self.assertEqual(exit_code, 1)
+        service_class.return_value.audit_repository.assert_called_once_with()
+        self.assertEqual(standard_error.getvalue(), "")
+        self.assertEqual(
+            standard_output.getvalue().splitlines(),
+            [
+                "Repository language audit",
+                "Total findings: 1",
+                "user_facing: 1",
+                (
+                    "application/templates/base.html\\nFORGED-PATH"
+                    "\\r\\t\\x1b[2J:"
+                    "12\\nFORGED-LINE\\r\\t\\x1b[31m "
+                    "[user_facing/language] synthetic_term: "
+                    "Synthetic finding message."
+                ),
+            ],
+        )
+
     def test_report_contains_summary_and_finding_details(
         self,
     ):
