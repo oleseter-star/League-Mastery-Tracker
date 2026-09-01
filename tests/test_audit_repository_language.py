@@ -337,28 +337,46 @@ class AuditRepositoryLanguageTrackedContractTests(
     def test_clean_audit_reports_concise_outcome_counts(
         self,
     ):
+        result = self._clean_result()
+
+        self.assertEqual(
+            result["findings"],
+            [],
+        )
+
         with patch.object(
             audit_repository_language,
             "RepositoryLanguageAuditService",
         ) as service_class:
             service_class.return_value.audit_repository.return_value = (
-                self._clean_result()
+                result
             )
 
             standard_output = io.StringIO()
+            standard_error = io.StringIO()
 
-            with redirect_stdout(standard_output):
+            with (
+                redirect_stdout(standard_output),
+                redirect_stderr(standard_error),
+            ):
                 exit_code = audit_repository_language.main(
                     project_root=self.project_root
                 )
 
         self.assertEqual(exit_code, 0)
-        output = standard_output.getvalue()
-        self.assertIn("2 tracked files", output)
-        self.assertIn("1 audited text", output)
-        self.assertIn("1 intentional binary exclusion", output)
-        self.assertIn("0 audit errors", output)
-        self.assertLessEqual(len(output.splitlines()), 3)
+        self.assertEqual(
+            standard_output.getvalue(),
+            (
+                "Repository language audit passed: "
+                "2 tracked files; "
+                "1 audited text; "
+                "1 intentional binary exclusions; "
+                "0 controlled non-language exclusions; "
+                "0 findings; "
+                "0 audit errors.\n"
+            ),
+        )
+        self.assertEqual(standard_error.getvalue(), "")
 
     def test_controlled_audit_error_returns_nonzero(
         self,

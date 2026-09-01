@@ -47,6 +47,7 @@ def main(
         "intentional binary exclusions; "
         f'{counts["controlled_non_language_exclusion"]} '
         "controlled non-language exclusions; "
+        f"{len(findings)} findings; "
         f'{counts["audit_error"]} audit errors.'
     )
     return 0
