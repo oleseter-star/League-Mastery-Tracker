@@ -488,6 +488,30 @@ class RepositoryLanguageAuditArtifactTests(
             content,
         )
 
+    def test_language_audit_artifact_documents_canonical_invocation(
+        self,
+    ):
+        content = self._read_artifact(
+            "Step10-language-audit.txt"
+        )
+        command = "python -B audit_repository_language.py"
+        invocation_block = (
+            "Audit invocation\n"
+            "----------------\n"
+            "Run the following command from the repository root:\n"
+            "\n"
+            "python -B audit_repository_language.py\n"
+        )
+
+        command_lines = [
+            line.strip()
+            for line in content.splitlines()
+            if line.strip() == command
+        ]
+
+        self.assertEqual(command_lines, [command])
+        self.assertEqual(content.count(invocation_block), 1)
+
     def test_test_results_artifact_distinguishes_verification_stages(
         self,
     ):

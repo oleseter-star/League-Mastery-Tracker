@@ -8,6 +8,12 @@ The candidate set is the local tracked tree returned by the NUL-delimited
 equivalent of `git ls-files -z`; untracked and ignored filesystem content is
 outside the audit scope.
 
+Audit invocation
+----------------
+Run the following command from the repository root:
+
+python -B audit_repository_language.py
+
 File handling
 -------------
 Tracked text is audited regardless of filename extension, including dotfiles,
