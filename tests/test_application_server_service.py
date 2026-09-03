@@ -75,66 +75,65 @@ class ApplicationServerServiceTests(
                         port=invalid_port,
                     )
 
+    @patch(
+        "application.services."
+        "application_server_service."
+        "socket.socket"
+    )
     def test_available_port_passes_validation(
-        self
+        self,
+        socket_constructor,
     ):
-        with socket.socket(
-            socket.AF_INET,
-            socket.SOCK_STREAM,
-        ) as occupied_socket:
-            occupied_socket.bind(
-                (
-                    "127.0.0.1",
-                    0,
-                )
-            )
-
-            available_port = (
-                occupied_socket
-                .getsockname()[1]
-            )
+        test_socket = Mock(spec=("bind", "close"))
+        socket_constructor.return_value = test_socket
 
         service = ApplicationServerService(
-            port=available_port,
+            port=5125,
         )
 
         service.ensure_port_available()
 
-    def test_occupied_port_is_rejected(self):
-        with socket.socket(
+        socket_constructor.assert_called_once_with(
             socket.AF_INET,
             socket.SOCK_STREAM,
-        ) as occupied_socket:
-            occupied_socket.setsockopt(
-                socket.SOL_SOCKET,
-                socket.SO_REUSEADDR,
-                1,
-            )
+        )
+        test_socket.bind.assert_called_once_with(
+            ("127.0.0.1", 5125),
+        )
+        test_socket.close.assert_called_once_with()
 
-            occupied_socket.bind(
-                (
-                    "127.0.0.1",
-                    0,
-                )
-            )
+    @patch(
+        "application.services."
+        "application_server_service."
+        "socket.socket"
+    )
+    def test_occupied_port_is_rejected(
+        self,
+        socket_constructor,
+    ):
+        test_socket = Mock(spec=("bind", "close"))
+        test_socket.bind.side_effect = OSError(
+            "Address already in use."
+        )
+        socket_constructor.return_value = test_socket
 
-            occupied_socket.listen(
-                1
-            )
+        service = ApplicationServerService(
+            port=5125,
+        )
 
-            occupied_port = (
-                occupied_socket
-                .getsockname()[1]
-            )
+        with self.assertRaises(
+            ApplicationPortInUseError
+        ):
+            service.ensure_port_available()
 
-            service = ApplicationServerService(
-                port=occupied_port,
-            )
-
-            with self.assertRaises(
-                ApplicationPortInUseError
-            ):
-                service.ensure_port_available()
+        socket_constructor.assert_called_once_with(
+            socket.AF_INET,
+            socket.SOCK_STREAM,
+        )
+        test_socket.bind.assert_called_once_with(
+            ("127.0.0.1", 5125),
+        )
+        test_socket.close.assert_called_once_with()
 
     @patch(
         "application.services."
