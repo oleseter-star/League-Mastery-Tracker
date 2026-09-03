@@ -2,6 +2,7 @@ import json
 import os
 import secrets
 import shutil
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -52,7 +53,9 @@ class ApplicationDataService:
         1. Explicit LEAGUE_MASTERY_TRACKER_DATA_DIR override
         2. Windows LOCALAPPDATA
         3. Windows user-profile fallback
-        4. Project-local data directory on non-Windows systems
+        4. Linux XDG_DATA_HOME
+        5. Linux user-profile fallback
+        6. Project-local data directory on other systems
         """
 
         project_root = Path(
@@ -111,6 +114,47 @@ class ApplicationDataService:
                 / cls.APPLICATION_DIRECTORY_NAME
             ).resolve()
 
+        is_linux = (
+            os_name == "linux"
+            or (
+                os_name == "posix"
+                and sys.platform.startswith("linux")
+            )
+        )
+
+        if is_linux:
+            xdg_data_home_value = str(
+                environment.get(
+                    "XDG_DATA_HOME",
+                    "",
+                )
+                or ""
+            ).strip()
+
+            xdg_data_home_directory = Path(
+                xdg_data_home_value
+            )
+
+            if (
+                xdg_data_home_value
+                and xdg_data_home_directory.is_absolute()
+            ):
+                return (
+                    xdg_data_home_directory
+                    / cls.APPLICATION_DIRECTORY_NAME
+                )
+
+            data_root_directory = (
+                home_directory
+                / ".local"
+                / "share"
+            )
+
+            return (
+                data_root_directory
+                / cls.APPLICATION_DIRECTORY_NAME
+            ).resolve()
+
         return (
             project_root
             / "data"
@@ -139,6 +183,19 @@ class ApplicationDataService:
         target_data_directory = Path(
             target_data_directory
         ).expanduser().resolve()
+
+        if cls._is_frozen_legacy_data_directory(
+            legacy_data_directory
+        ):
+            return cls._build_skipped_result(
+                reason="legacy_data_not_found",
+                legacy_data_directory=(
+                    legacy_data_directory
+                ),
+                target_data_directory=(
+                    target_data_directory
+                ),
+            )
 
         if (
             legacy_data_directory
@@ -298,6 +355,52 @@ class ApplicationDataService:
                 / cls.MIGRATION_MARKER_FILE_NAME
             ),
         }
+
+    @staticmethod
+    def _is_frozen_legacy_data_directory(
+        legacy_data_directory,
+    ):
+        """
+        Return whether a legacy source is inside a frozen bundle.
+        """
+
+        if not getattr(
+            sys,
+            "frozen",
+            False,
+        ):
+            return False
+
+        pyinstaller_directory = getattr(
+            sys,
+            "_MEIPASS",
+            None,
+        )
+
+        if not pyinstaller_directory:
+            return False
+
+        try:
+            pyinstaller_root_directory = Path(
+                pyinstaller_directory
+            ).expanduser()
+
+        except (
+            TypeError,
+            ValueError,
+        ):
+            return True
+
+        pyinstaller_root_directory = (
+            pyinstaller_root_directory.resolve()
+        )
+
+        return (
+            legacy_data_directory
+            == pyinstaller_root_directory
+            or pyinstaller_root_directory
+            in legacy_data_directory.parents
+        )
 
     @classmethod
     def _write_migration_marker(
