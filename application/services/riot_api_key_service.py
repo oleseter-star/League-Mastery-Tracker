@@ -1,10 +1,15 @@
 import os
+import sys
 from pathlib import Path
 
 from flask import current_app
 
 from application.services.windows_dpapi_service import (
     WindowsDpapiService,
+)
+from application.services.linux_secret_service import (
+    LinuxSecretService,
+    LinuxSecretServiceStorageError,
 )
 
 
@@ -36,6 +41,10 @@ class RiotApiKeyService:
         b"LMT-RIOT-API-KEY\x00\x01"
     )
 
+    SECRET_SERVICE_ATTRIBUTES = (
+        LinuxSecretService.ITEM_ATTRIBUTES
+    )
+
     @classmethod
     def get_api_key(cls):
         """
@@ -45,21 +54,24 @@ class RiotApiKeyService:
         is returned.
         """
 
-        local_key = cls._get_local_key_with_migration()
+        try:
+            local_key = cls._get_local_key_with_migration()
+
+        except RiotApiKeyStorageError:
+            if not cls._is_linux():
+                raise
+
+            fallback_key = cls._get_environment_or_configured_key()
+
+            if fallback_key:
+                return fallback_key
+
+            raise
 
         if local_key:
             return local_key
 
-        environment_key = cls._normalize_optional_key(
-            os.environ.get("RIOT_API_KEY")
-        )
-
-        if environment_key:
-            return environment_key
-
-        return cls._normalize_optional_key(
-            current_app.config.get("RIOT_API_KEY")
-        )
+        return cls._get_environment_or_configured_key()
 
     @classmethod
     def get_status(cls):
@@ -76,6 +88,21 @@ class RiotApiKeyService:
             )
 
         except RiotApiKeyStorageError as error:
+            if cls._is_linux():
+                fallback_key = (
+                    cls._get_environment_or_configured_key()
+                )
+
+                if fallback_key:
+                    return {
+                        "configured": True,
+                        "source": "environment",
+                        "masked_key": cls._mask_key(
+                            fallback_key
+                        ),
+                        "error": None,
+                    }
+
             return {
                 "configured": False,
                 "source": "local",
@@ -93,30 +120,14 @@ class RiotApiKeyService:
                 "error": None,
             }
 
-        environment_key = cls._normalize_optional_key(
-            os.environ.get("RIOT_API_KEY")
-        )
+        fallback_key = cls._get_environment_or_configured_key()
 
-        if environment_key:
+        if fallback_key:
             return {
                 "configured": True,
                 "source": "environment",
                 "masked_key": cls._mask_key(
-                    environment_key
-                ),
-                "error": None,
-            }
-
-        configured_key = cls._normalize_optional_key(
-            current_app.config.get("RIOT_API_KEY")
-        )
-
-        if configured_key:
-            return {
-                "configured": True,
-                "source": "environment",
-                "masked_key": cls._mask_key(
-                    configured_key
+                    fallback_key
                 ),
                 "error": None,
             }
@@ -140,6 +151,11 @@ class RiotApiKeyService:
         normalized_key = cls._normalize_required_key(
             api_key
         )
+
+        if cls._is_linux():
+            return cls._save_linux_api_key(
+                normalized_key
+            )
 
         encrypted_file = (
             cls._get_encrypted_key_file()
@@ -239,6 +255,9 @@ class RiotApiKeyService:
         An environment-variable key, if present, is not modified.
         """
 
+        if cls._is_linux():
+            return cls._delete_linux_api_key()
+
         deleted = False
 
         for key_file in (
@@ -261,12 +280,29 @@ class RiotApiKeyService:
         secure source.
         """
 
-        encrypted_file = (
-            cls._get_encrypted_key_file()
-        )
+        if cls._is_linux():
+            try:
+                local_key = LinuxSecretService.read_api_key()
+            except LinuxSecretServiceStorageError as error:
+                raise RiotApiKeyStorageError(
+                    "Persistent Riot API key storage is unavailable."
+                ) from error
 
-        if encrypted_file.exists():
-            return cls._read_encrypted_key()
+            if local_key:
+                try:
+                    return cls._normalize_required_key(local_key)
+                except ValueError as error:
+                    raise RiotApiKeyStorageError(
+                        "The stored Riot API key could not be read safely."
+                    ) from error
+
+        else:
+            encrypted_file = (
+                cls._get_encrypted_key_file()
+            )
+
+            if encrypted_file.exists():
+                return cls._read_encrypted_key()
 
         legacy_key = cls._read_legacy_key()
 
@@ -288,6 +324,98 @@ class RiotApiKeyService:
             ) from error
 
         return legacy_key
+
+    @classmethod
+    def get_persistent_storage_status(cls):
+        """
+        Return non-sensitive persistent-storage availability.
+        """
+
+        if cls._is_linux():
+            try:
+                LinuxSecretService.is_available()
+            except LinuxSecretServiceStorageError:
+                return {
+                    "available": False,
+                    "error": (
+                        "Persistent Riot API key storage is "
+                        "unavailable."
+                    ),
+                }
+
+            return {
+                "available": True,
+                "error": None,
+            }
+
+        if os.name != "nt":
+            return {
+                "available": False,
+                "error": (
+                    "Persistent Riot API key storage is "
+                    "unavailable."
+                ),
+            }
+
+        return {
+            "available": True,
+            "error": None,
+        }
+
+    @classmethod
+    def _save_linux_api_key(cls, normalized_key):
+        try:
+            LinuxSecretService.save_api_key(normalized_key)
+            verified_key = LinuxSecretService.read_api_key()
+        except LinuxSecretServiceStorageError as error:
+            raise RiotApiKeyStorageError(
+                "The Riot API key could not be saved safely."
+            ) from error
+
+        if verified_key != normalized_key:
+            raise RiotApiKeyStorageError(
+                "The Riot API key could not be verified."
+            )
+
+        legacy_file = cls._get_legacy_key_file()
+
+        if legacy_file.exists():
+            try:
+                legacy_file.unlink()
+            except OSError as error:
+                raise RiotApiKeyStorageError(
+                    "The Riot API key could not be saved safely."
+                ) from error
+
+        return {
+            "configured": True,
+            "source": "local",
+            "masked_key": cls._mask_key(normalized_key),
+            "error": None,
+        }
+
+    @classmethod
+    def _delete_linux_api_key(cls):
+        try:
+            deleted = LinuxSecretService.delete_api_key()
+        except LinuxSecretServiceStorageError as error:
+            raise RiotApiKeyStorageError(
+                "The stored Riot API key could not be removed safely."
+            ) from error
+
+        legacy_file = cls._get_legacy_key_file()
+
+        if legacy_file.exists():
+            try:
+                legacy_file.unlink()
+            except OSError as error:
+                raise RiotApiKeyStorageError(
+                    "The stored Riot API key could not be removed safely."
+                ) from error
+
+            deleted = True
+
+        return deleted
 
     @classmethod
     def _read_encrypted_key(cls):
@@ -445,6 +573,23 @@ class RiotApiKeyService:
     def _get_configuration_directory():
         return Path(
             current_app.config["CONFIG_DIR"]
+        )
+
+    @staticmethod
+    def _is_linux():
+        return sys.platform.startswith("linux")
+
+    @classmethod
+    def _get_environment_or_configured_key(cls):
+        environment_key = cls._normalize_optional_key(
+            os.environ.get("RIOT_API_KEY")
+        )
+
+        if environment_key:
+            return environment_key
+
+        return cls._normalize_optional_key(
+            current_app.config.get("RIOT_API_KEY")
         )
 
     @staticmethod
