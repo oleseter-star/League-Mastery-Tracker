@@ -229,6 +229,43 @@ class CurrentRepositoryLanguageAuditTests(
         self,
     ):
         _service, result = self._audit_repository()
+        completed_process = subprocess.run(
+            ["git", "ls-files", "-z"],
+            cwd=self.project_root,
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        tracked_paths = tuple(
+            path_bytes.decode(
+                "utf-8",
+                errors="surrogateescape",
+            )
+            for path_bytes in completed_process.stdout.split(b"\0")
+            if path_bytes
+        )
+        outcomes = result["outcomes"]
+        outcome_paths = tuple(
+            outcome["path"]
+            for outcome in outcomes
+        )
+        outcome_paths_by_category = {
+            category: tuple(
+                outcome["path"]
+                for outcome in outcomes
+                if outcome["outcome"] == category
+            )
+            for category in (
+                "audited_text",
+                "intentional_binary_exclusion",
+                "controlled_non_language_exclusion",
+            )
+        }
+        classified_paths = tuple(
+            path
+            for category in outcome_paths_by_category.values()
+            for path in category
+        )
 
         failure_details = "\n".join(
             (
@@ -252,8 +289,69 @@ class CurrentRepositoryLanguageAuditTests(
             failure_details,
         )
         self.assertEqual(
-            len(result["tracked_paths"]),
-            len(result["outcomes"]),
+            result["counts"]["tracked_files"],
+            352,
+        )
+        self.assertEqual(len(tracked_paths), 352)
+        self.assertEqual(result["tracked_paths"], tracked_paths)
+        self.assertEqual(len(outcomes), 352)
+        self.assertEqual(
+            result["counts"]["audited_text"],
+            178,
+        )
+        self.assertEqual(
+            len(outcome_paths_by_category["audited_text"]),
+            178,
+        )
+        self.assertEqual(
+            result["counts"]["intentional_binary_exclusion"],
+            174,
+        )
+        self.assertEqual(
+            len(
+                outcome_paths_by_category[
+                    "intentional_binary_exclusion"
+                ]
+            ),
+            174,
+        )
+        self.assertEqual(
+            result["counts"]["controlled_non_language_exclusion"],
+            0,
+        )
+        self.assertEqual(
+            len(
+                outcome_paths_by_category[
+                    "controlled_non_language_exclusion"
+                ]
+            ),
+            0,
+        )
+        self.assertEqual(len(classified_paths), 352)
+        self.assertEqual(len(tracked_paths), len(set(tracked_paths)))
+        self.assertEqual(len(outcome_paths), len(set(outcome_paths)))
+        self.assertEqual(outcome_paths, tracked_paths)
+
+        category_path_sets = tuple(
+            set(paths)
+            for paths in outcome_paths_by_category.values()
+        )
+        self.assertTrue(
+            all(
+                category_path_sets[index].isdisjoint(
+                    category_path_sets[other_index]
+                )
+                for index in range(len(category_path_sets))
+                for other_index in range(index + 1, len(category_path_sets))
+            )
+        )
+        self.assertEqual(
+            len(classified_paths),
+            len(set(classified_paths)),
+        )
+        self.assertEqual(
+            set(classified_paths),
+            set(tracked_paths),
         )
 
     def test_production_path_set_matches_git_ls_files_exactly(
