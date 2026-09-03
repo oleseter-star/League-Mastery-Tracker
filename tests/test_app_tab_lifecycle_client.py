@@ -149,6 +149,8 @@ class AppTabLifecycleClientTests(
         )
 
     def tearDown(self):
+        self.doCleanups()
+
         with self.app.app_context():
             db.session.remove()
             db.engine.dispose()
@@ -278,6 +280,8 @@ class AppTabLifecycleClientTests(
                 "application_tab_lifecycle.js"
             )
         )
+
+        self.addCleanup(response.close)
 
         self.assertEqual(
             response.status_code,

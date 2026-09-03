@@ -165,6 +165,8 @@ class AppChampionImagesBlueprintTests(
         )
 
     def tearDown(self):
+        self.doCleanups()
+
         with self.app.app_context():
             db.session.remove()
             db.engine.dispose()
@@ -221,6 +223,8 @@ class AppChampionImagesBlueprintTests(
             response = self.client.get(
                 "/champions/images/Annie.png"
             )
+
+        self.addCleanup(response.close)
 
         self.assertEqual(
             response.status_code,
