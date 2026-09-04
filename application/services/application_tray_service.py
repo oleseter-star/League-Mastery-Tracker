@@ -1,11 +1,62 @@
+import os
+import sys
 import threading
 
-from PIL import (
-    Image,
-    ImageDraw,
-)
 
-import pystray
+class _LazyPystrayModule:
+    """Delay the optional pystray import until an attribute is used."""
+
+    def __init__(self):
+        object.__setattr__(self, "_overrides", {})
+
+    def __getattr__(self, name):
+        overrides = object.__getattribute__(
+            self,
+            "_overrides",
+        )
+
+        if name in overrides:
+            return overrides[name]
+
+        import pystray
+
+        return getattr(pystray, name)
+
+    def __setattr__(self, name, value):
+        object.__getattribute__(
+            self,
+            "_overrides",
+        )[name] = value
+
+    def __delattr__(self, name):
+        del object.__getattribute__(
+            self,
+            "_overrides",
+        )[name]
+
+    def has_overrides(self):
+        return bool(
+            object.__getattribute__(
+                self,
+                "_overrides",
+            )
+        )
+
+
+_lazy_pystray = _LazyPystrayModule()
+
+
+def __getattr__(name):
+    if name == "pystray":
+        return _lazy_pystray
+
+    raise AttributeError(name)
+
+
+class ApplicationTrayUnavailableError(RuntimeError):
+    """
+    Raised when optional Linux notification-area support is unavailable.
+    """
 
 
 class ApplicationTrayService:
@@ -154,7 +205,21 @@ class ApplicationTrayService:
         in both source and packaged application builds.
         """
 
-        image = Image.new(
+        _, image_module, image_draw_module = (
+            self._load_tray_dependencies()
+        )
+
+        return self._create_icon_image(
+            image_module,
+            image_draw_module,
+        )
+
+    def _create_icon_image(
+        self,
+        image_module,
+        image_draw_module,
+    ):
+        image = image_module.new(
             "RGBA",
             (
                 self.ICON_SIZE,
@@ -168,7 +233,7 @@ class ApplicationTrayService:
             ),
         )
 
-        drawing = ImageDraw.Draw(
+        drawing = image_draw_module.Draw(
             image
         )
 
@@ -258,37 +323,54 @@ class ApplicationTrayService:
         if self._icon is not None:
             return self._icon
 
-        self._background_error = None
+        if (
+            self._is_linux()
+            and not self._is_linux_tray_eligible()
+        ):
+            self._raise_linux_tray_unavailable()
 
-        open_menu_item = pystray.MenuItem(
+        self._background_error = None
+        pystray_module, image_module, image_draw_module = (
+            self._load_tray_dependencies()
+        )
+
+        try:
+            image = self._create_icon_image(
+                image_module,
+                image_draw_module,
+            )
+        except OSError as error:
+            if self._is_linux():
+                self._raise_linux_tray_unavailable(error)
+            raise
+
+        open_menu_item = pystray_module.MenuItem(
             self.open_menu_text,
             self._handle_open_application,
             default=True,
         )
 
-        shutdown_menu_item = (
-            pystray.MenuItem(
-                self.shutdown_menu_text,
-                self._handle_shutdown,
-            )
+        shutdown_menu_item = pystray_module.MenuItem(
+            self.shutdown_menu_text,
+            self._handle_shutdown,
         )
 
-        menu = pystray.Menu(
+        menu = pystray_module.Menu(
             open_menu_item,
-            pystray.Menu.SEPARATOR,
+            pystray_module.Menu.SEPARATOR,
             shutdown_menu_item,
         )
 
-        icon = pystray.Icon(
-            name=self.icon_name,
-            icon=self.create_icon_image(),
-            title=self.icon_title,
-            menu=menu,
-        )
-
-        self._icon = icon
-
         try:
+            icon = pystray_module.Icon(
+                name=self.icon_name,
+                icon=image,
+                title=self.icon_title,
+                menu=menu,
+            )
+
+            self._icon = icon
+
             if self._uses_owned_xorg_runner(icon):
                 icon_runner_thread = threading.Thread(
                     target=self._run_xorg_icon,
@@ -308,13 +390,123 @@ class ApplicationTrayService:
                 icon.run_detached()
                 self._is_running = True
 
-        except Exception:
-            self._icon = None
-            self._icon_runner_thread = None
-            self._is_running = False
+        except self._xorg_backend_error_types(
+            pystray_module
+        ) as error:
+            if self._is_linux():
+                self._raise_linux_tray_unavailable(error)
             raise
 
         return icon
+
+    @staticmethod
+    def _is_linux():
+        return sys.platform.startswith("linux")
+
+    @staticmethod
+    def _is_linux_tray_eligible():
+        backend = os.environ.get(
+            "PYSTRAY_BACKEND",
+            "",
+        ).strip()
+
+        if backend == "dummy":
+            return True
+
+        return bool(
+            os.environ.get(
+                "DISPLAY",
+                "",
+            ).strip()
+        )
+
+    def _load_tray_dependencies(self):
+        """
+        Import optional tray dependencies only when a tray is requested.
+        """
+
+        try:
+            from PIL import Image, ImageDraw
+        except ImportError as error:
+            if self._is_linux():
+                self._raise_linux_tray_unavailable(error)
+            raise
+
+        if _lazy_pystray.has_overrides():
+            return _lazy_pystray, Image, ImageDraw
+
+        if self._is_linux() and not self._uses_dummy_backend():
+            try:
+                from Xlib.error import (
+                    DisplayConnectionError,
+                    DisplayNameError,
+                )
+            except ImportError as error:
+                self._raise_linux_tray_unavailable(error)
+
+            try:
+                import pystray
+            except (
+                ImportError,
+                DisplayConnectionError,
+                DisplayNameError,
+            ) as error:
+                self._raise_linux_tray_unavailable(error)
+        else:
+            try:
+                import pystray
+            except ImportError as error:
+                if self._is_linux():
+                    self._raise_linux_tray_unavailable(error)
+                raise
+
+        return pystray, Image, ImageDraw
+
+    @staticmethod
+    def _uses_dummy_backend():
+        return (
+            os.environ.get(
+                "PYSTRAY_BACKEND",
+                "",
+            ).strip()
+            == "dummy"
+        )
+
+    def _xorg_backend_error_types(self, pystray_module):
+        if (
+            self._uses_dummy_backend()
+            or not self._uses_owned_xorg_runner(
+                pystray_module.Icon
+            )
+        ):
+            return ()
+
+        from Xlib.error import (
+            DisplayConnectionError,
+            DisplayNameError,
+        )
+
+        return (
+            DisplayConnectionError,
+            DisplayNameError,
+        )
+
+    def _raise_linux_tray_unavailable(self, error=None):
+        self._reset_unavailable_tray()
+
+        unavailable_error = ApplicationTrayUnavailableError(
+            "Notification-area support is unavailable."
+        )
+
+        if error is None:
+            raise unavailable_error
+
+        raise unavailable_error from error
+
+    def _reset_unavailable_tray(self):
+        self._icon = None
+        self._icon_runner_thread = None
+        self._is_running = False
 
     def stop(self):
         """
