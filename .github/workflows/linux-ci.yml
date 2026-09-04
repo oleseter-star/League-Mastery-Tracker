@@ -39,6 +39,9 @@ jobs:
   windows-regression:
     runs-on: windows-2022
     timeout-minutes: 20
+    env:
+      TEMP: ${{ runner.temp }}
+      TMP: ${{ runner.temp }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

@@ -77,6 +77,12 @@ class GitHubActionsLinuxCiConfigurationTests(
             "PYTHONWARNINGS: error::ResourceWarning",
             self.workflow_source,
         )
+        windows_job = self._job("windows-regression")
+        self.assertRegex(
+            windows_job,
+            r"env:\n\s+TEMP: \$\{\{ runner\.temp \}\}\n"
+            r"\s+TMP: \$\{\{ runner\.temp \}\}",
+        )
         for job_name in self._job_names():
             self.assertIn(
                 "actions/setup-python@v5",

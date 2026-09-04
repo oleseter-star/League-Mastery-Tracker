@@ -200,13 +200,23 @@ class ApplicationTrayServiceTests(
         self.assertNotIn("synthetic Pillow missing", str(context.exception))
 
     def test_linux_x11_display_failure_is_controlled_unavailability(self):
-        from Xlib.error import DisplayConnectionError
+        fake_xlib_module = type(sys)("Xlib")
+        fake_xlib_error_module = type(sys)("Xlib.error")
+        display_connection_error = type(
+            "DisplayConnectionError",
+            (Exception,),
+            {},
+        )
+        fake_xlib_error_module.DisplayConnectionError = (
+            display_connection_error
+        )
+        fake_xlib_module.error = fake_xlib_error_module
 
         original_import = builtins.__import__
 
         def display_failure(name, *args, **kwargs):
             if name == "pystray":
-                raise DisplayConnectionError(
+                raise display_connection_error(
                     ":synthetic",
                     "synthetic display failure",
                 )
@@ -218,6 +228,13 @@ class ApplicationTrayServiceTests(
                 os.environ,
                 {"DISPLAY": ":99"},
                 clear=True,
+            ),
+            patch.dict(
+                sys.modules,
+                {
+                    "Xlib": fake_xlib_module,
+                    "Xlib.error": fake_xlib_error_module,
+                },
             ),
             patch.object(
                 builtins,
@@ -235,7 +252,15 @@ class ApplicationTrayServiceTests(
     def test_linux_x11_display_name_failure_is_controlled_unavailability(
         self,
     ):
-        from Xlib.error import DisplayNameError
+        fake_xlib_module = type(sys)("Xlib")
+        fake_xlib_error_module = type(sys)("Xlib.error")
+        display_name_error = type(
+            "DisplayNameError",
+            (Exception,),
+            {},
+        )
+        fake_xlib_error_module.DisplayNameError = display_name_error
+        fake_xlib_module.error = fake_xlib_error_module
 
         raw_marker = (
             "SYNTHETIC_X11_DISPLAY_NAME "
@@ -247,7 +272,7 @@ class ApplicationTrayServiceTests(
 
         def display_failure(name, *args, **kwargs):
             if name == "pystray":
-                raise DisplayNameError(raw_marker)
+                raise display_name_error(raw_marker)
             return original_import(name, *args, **kwargs)
 
         with (
@@ -256,6 +281,13 @@ class ApplicationTrayServiceTests(
                 os.environ,
                 {"DISPLAY": ":99"},
                 clear=True,
+            ),
+            patch.dict(
+                sys.modules,
+                {
+                    "Xlib": fake_xlib_module,
+                    "Xlib.error": fake_xlib_error_module,
+                },
             ),
             patch.object(
                 builtins,
