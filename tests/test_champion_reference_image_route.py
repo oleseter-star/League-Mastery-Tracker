@@ -86,20 +86,23 @@ class ChampionReferenceImageRouteTests(
                 "/champions/images/Annie.png"
             )
 
-        self.assertEqual(
-            response.status_code,
-            200,
-        )
+        try:
+            self.assertEqual(
+                response.status_code,
+                200,
+            )
 
-        self.assertEqual(
-            response.mimetype,
-            "image/png",
-        )
+            self.assertEqual(
+                response.mimetype,
+                "image/png",
+            )
 
-        self.assertEqual(
-            response.data,
-            self.PNG_BYTES,
-        )
+            self.assertEqual(
+                response.data,
+                self.PNG_BYTES,
+            )
+        finally:
+            response.close()
 
     def test_route_uses_image_service(
         self
@@ -121,15 +124,18 @@ class ChampionReferenceImageRouteTests(
                 "placeholder": False,
             }
 
-            self.client.get(
+            response = self.client.get(
                 "/champions/images/Annie.png"
             )
 
-        service_class.assert_called_once_with()
+        try:
+            service_class.assert_called_once_with()
 
-        service.resolve_image.assert_called_once_with(
-            "Annie.png"
-        )
+            service.resolve_image.assert_called_once_with(
+                "Annie.png"
+            )
+        finally:
+            response.close()
 
     def test_missing_image_returns_svg_placeholder(
         self
@@ -282,17 +288,20 @@ class ChampionReferenceImageRouteTests(
                 "/champions/images/Annie.png"
             )
 
-        content_disposition = (
-            response.headers.get(
-                "Content-Disposition",
-                "",
+        try:
+            content_disposition = (
+                response.headers.get(
+                    "Content-Disposition",
+                    "",
+                )
             )
-        )
 
-        self.assertNotIn(
-            "attachment",
-            content_disposition.lower(),
-        )
+            self.assertNotIn(
+                "attachment",
+                content_disposition.lower(),
+            )
+        finally:
+            response.close()
 
     def test_route_rejects_post(
         self
