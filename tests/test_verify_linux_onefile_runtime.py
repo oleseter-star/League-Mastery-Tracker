@@ -105,26 +105,38 @@ class VerifyLinuxOnefileRuntimeTests(unittest.TestCase):
             executable = root / "LeagueMasteryTracker"
             executable.write_bytes(b"not executable")
 
-            with self.assertRaises(runtime.RuntimeAcceptanceError):
-                runtime.validate_paths(
-                    executable,
-                    root,
-                    root.parent / "runtime",
-                )
+            with patch.object(
+                runtime.os,
+                "access",
+                return_value=False,
+            ) as executable_access:
+                with self.assertRaises(runtime.RuntimeAcceptanceError):
+                    runtime.validate_paths(
+                        executable,
+                        root,
+                        root.parent / "runtime",
+                    )
+
+            executable_access.assert_called_once_with(
+                executable.resolve(),
+                runtime.os.X_OK,
+            )
 
     def test_layout_is_isolated_and_runtime_directory_is_owner_only(self):
         with tempfile.TemporaryDirectory() as temporary_directory:
             parent = Path(temporary_directory)
             executable = self._create_executable(parent)
-            layout = runtime.create_runtime_layout(
-                executable,
-                parent / "runtime",
-            )
+
+            with patch.object(runtime.os, "chmod") as set_permissions:
+                layout = runtime.create_runtime_layout(
+                    executable,
+                    parent / "runtime",
+                )
 
             self.assertEqual(list(layout.program.iterdir()), [layout.executable])
             self.assertEqual(layout.executable.read_bytes(), executable.read_bytes())
-            self.assertEqual(
-                stat.S_IMODE(layout.xdg_runtime.stat().st_mode),
+            set_permissions.assert_any_call(
+                layout.xdg_runtime,
                 0o700,
             )
             self.assertTrue(layout.working.is_dir())
@@ -193,7 +205,11 @@ class VerifyLinuxOnefileRuntimeTests(unittest.TestCase):
     def test_process_group_cleanup_reaps_started_process(self):
         process = _FakeProcess()
 
-        with patch.object(os, "killpg") as kill_process_group:
+        with patch.object(
+            runtime.os,
+            "killpg",
+            create=True,
+        ) as kill_process_group:
             runtime.terminate_process_group(process)
 
         kill_process_group.assert_called_once_with(
