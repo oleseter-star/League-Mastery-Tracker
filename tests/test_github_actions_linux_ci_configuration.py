@@ -78,10 +78,22 @@ class GitHubActionsLinuxCiConfigurationTests(
             self.workflow_source,
         )
         windows_job = self._job("windows-regression")
-        self.assertRegex(
+        self.assertNotRegex(
             windows_job,
+            r"(?m)^    env:",
+        )
+        windows_unittest_step = self._step_named(
+            windows_job,
+            "Run full unittest suite",
+        )
+        self.assertRegex(
+            windows_unittest_step,
             r"env:\n\s+TEMP: \$\{\{ runner\.temp \}\}\n"
             r"\s+TMP: \$\{\{ runner\.temp \}\}",
+        )
+        self.assertEqual(
+            self.workflow_source.count("${{ runner.temp }}"),
+            2,
         )
         for job_name in self._job_names():
             self.assertIn(
@@ -195,6 +207,15 @@ class GitHubActionsLinuxCiConfigurationTests(
             jobs_source,
         )
         self.assertIsNotNone(match, msg=f"Missing job: {job_name}")
+        return match.group(0)
+
+    def _step_named(self, job_source, step_name):
+        match = re.search(
+            rf"(?ms)^      - name: {re.escape(step_name)}\n"
+            r"(.*?)(?=^      - (?:name:|uses:)|\Z)",
+            job_source,
+        )
+        self.assertIsNotNone(match, msg=f"Missing step: {step_name}")
         return match.group(0)
 
 

@@ -39,9 +39,6 @@ jobs:
   windows-regression:
     runs-on: windows-2022
     timeout-minutes: 20
-    env:
-      TEMP: ${{ runner.temp }}
-      TMP: ${{ runner.temp }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -50,6 +47,9 @@ jobs:
       - name: Install pinned runtime and test dependencies
         run: python -m pip install --disable-pip-version-check -r requirements.txt
       - name: Run full unittest suite
+        env:
+          TEMP: ${{ runner.temp }}
+          TMP: ${{ runner.temp }}
         run: python -B -m unittest discover -s tests -v
       - name: Run repository language audit
         run: python -B audit_repository_language.py
