@@ -87,12 +87,23 @@ class PyInstallerLinuxConfigurationTests(
         )
 
     def test_hidden_imports_cover_only_lazy_linux_boundaries(self):
-        hidden_imports = set(
-            self._literal_assignment("LINUX_HIDDEN_IMPORTS")
+        analysis_call = self._call_named("Analysis")
+        hidden_imports_argument = self._keyword(
+            analysis_call,
+            "hiddenimports",
         )
+        self.assertIsInstance(hidden_imports_argument, ast.Name)
+        self.assertEqual(
+            hidden_imports_argument.id,
+            "LINUX_HIDDEN_IMPORTS",
+        )
+        hidden_imports = self._literal_assignment(
+            "LINUX_HIDDEN_IMPORTS"
+        )
+        self.assertIsInstance(hidden_imports, list)
         self.assertEqual(
             hidden_imports,
-            {
+            [
                 "PIL.Image",
                 "PIL.ImageDraw",
                 "pystray._xorg",
@@ -103,7 +114,7 @@ class PyInstallerLinuxConfigurationTests(
                 "jeepney",
                 "jeepney.bus",
                 "jeepney.io.blocking",
-            },
+            ],
         )
         self.assertFalse(
             any("win32" in name.lower() for name in hidden_imports)

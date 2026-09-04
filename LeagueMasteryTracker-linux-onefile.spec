@@ -34,7 +34,7 @@ datas = [
     )
 ]
 
-LINUX_HIDDEN_IMPORTS = (
+LINUX_HIDDEN_IMPORTS = [
     "PIL.Image",
     "PIL.ImageDraw",
     "pystray._xorg",
@@ -45,7 +45,7 @@ LINUX_HIDDEN_IMPORTS = (
     "jeepney",
     "jeepney.bus",
     "jeepney.io.blocking",
-)
+]
 
 analysis = Analysis(
     ["run.py"],
