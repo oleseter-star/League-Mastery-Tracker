@@ -193,10 +193,10 @@ class BackupService:
         backup_directory,
     ):
         """
-        Build a unique backup filename.
+        Build a backup filename without replacing an existing backup.
 
-        Microseconds prevent two manual backups created during the
-        same second from overwriting one another.
+        Preserve the timestamp filename when it is available, then
+        use a deterministic suffix for collisions.
         """
 
         timestamp = datetime.now(
@@ -205,7 +205,7 @@ class BackupService:
             "%Y%m%dT%H%M%S%fZ"
         )
 
-        return (
+        candidate_file = (
             backup_directory
             / (
                 f"{cls.FILE_PREFIX}_"
@@ -213,6 +213,23 @@ class BackupService:
                 f"{cls.FILE_SUFFIX}"
             )
         )
+
+        if not candidate_file.exists():
+            return candidate_file
+
+        suffix_number = 1
+
+        while True:
+            backup_file = candidate_file.with_name(
+                f"{candidate_file.stem}_"
+                f"{suffix_number}"
+                f"{candidate_file.suffix}"
+            )
+
+            if not backup_file.exists():
+                return backup_file
+
+            suffix_number += 1
 
     @classmethod
     def _prune_old_backups(

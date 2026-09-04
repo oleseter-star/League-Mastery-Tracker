@@ -1,8 +1,10 @@
 import os
 import sqlite3
 import unittest
+from datetime import datetime, timezone
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest.mock import patch
 
 from flask import Flask
 
@@ -124,6 +126,99 @@ class BackupServiceTests(unittest.TestCase):
                 "backup-test",
             ),
         )
+
+    def test_existing_timestamp_backup_uses_unique_suffix(self):
+        self.backup_directory.mkdir(
+            parents=True,
+            exist_ok=True,
+        )
+
+        timestamp = datetime(
+            2026,
+            1,
+            1,
+            tzinfo=timezone.utc,
+        )
+
+        candidate_file = (
+            self.backup_directory
+            / "league_mastery_tracker_20260101T000000000000Z.db"
+        )
+
+        sentinel_contents = b"existing backup sentinel"
+        candidate_file.write_bytes(sentinel_contents)
+
+        with patch(
+            "application.services.backup_service.datetime",
+            wraps=datetime,
+        ) as backup_datetime:
+            backup_datetime.now.return_value = timestamp
+            first_result = BackupService.create_backup()
+            second_result = BackupService.create_backup()
+
+        first_backup_file = first_result["backup_file"]
+        second_backup_file = second_result["backup_file"]
+
+        self.assertEqual(
+            candidate_file.read_bytes(),
+            sentinel_contents,
+        )
+        self.assertNotEqual(
+            first_backup_file,
+            candidate_file,
+        )
+        self.assertEqual(
+            first_backup_file,
+            self.backup_directory
+            / "league_mastery_tracker_"
+            "20260101T000000000000Z_1.db",
+        )
+        self.assertNotEqual(
+            second_backup_file,
+            first_backup_file,
+        )
+        self.assertEqual(
+            second_backup_file,
+            self.backup_directory
+            / "league_mastery_tracker_"
+            "20260101T000000000000Z_2.db",
+        )
+        self.assertEqual(
+            first_backup_file.resolve().parent,
+            self.backup_directory.resolve(),
+        )
+        self.assertEqual(
+            second_backup_file.resolve().parent,
+            self.backup_directory.resolve(),
+        )
+        self.assertTrue(candidate_file.is_file())
+        self.assertTrue(first_backup_file.is_file())
+        self.assertTrue(second_backup_file.is_file())
+
+        for backup_file in (
+            first_backup_file,
+            second_backup_file,
+        ):
+            connection = sqlite3.connect(str(backup_file))
+
+            try:
+                row = connection.execute(
+                    """
+                    SELECT value
+                    FROM test_records
+                    WHERE id = 1
+                    """
+                ).fetchone()
+
+            finally:
+                connection.close()
+
+            self.assertEqual(
+                row,
+                (
+                    "backup-test",
+                ),
+            )
 
     def test_recent_backup_prevents_another_backup(self):
         first_result = (
