@@ -151,6 +151,48 @@ class GitHubActionsLinuxCiConfigurationTests(
         self.assertIn("test -x dist/LeagueMasteryTracker", linux_job)
         self.assertIn("test ! -e dist/LeagueMasteryTracker.exe", linux_job)
         self.assertIn("ELF 64-bit.*x86-64", linux_job)
+        runtime_step = self._step_named(
+            linux_job,
+            "Run isolated Linux onefile runtime acceptance",
+        )
+        self.assertIn(
+            "python -B verify_linux_onefile_runtime.py",
+            runtime_step,
+        )
+        for expected_argument in (
+            '--executable "$GITHUB_WORKSPACE/dist/LeagueMasteryTracker"',
+            '--repository-root "$GITHUB_WORKSPACE"',
+            '--temporary-root "$RUNNER_TEMP/linux-onefile-runtime"',
+            "timeout-minutes: 5",
+        ):
+            self.assertIn(expected_argument, runtime_step)
+        self.assertNotIn("continue-on-error", runtime_step)
+        self.assertLess(
+            linux_job.index("- name: Verify Linux executable"),
+            linux_job.index(
+                "- name: Run isolated Linux onefile runtime acceptance"
+            ),
+        )
+        self.assertLess(
+            linux_job.index(
+                "- name: Run isolated Linux onefile runtime acceptance"
+            ),
+            linux_job.index("- name: Create executable checksum"),
+        )
+        self.assertEqual(linux_job.count("python -m PyInstaller"), 1)
+        for prohibited_text in (
+            "download-artifact",
+            "curl ",
+            "wget ",
+            "sudo ",
+            "BROWSER",
+            "DISPLAY",
+            "WAYLAND_DISPLAY",
+            "Secret Service",
+            "publish",
+            "release",
+        ):
+            self.assertNotIn(prohibited_text, linux_job)
 
     def test_checksum_and_artifact_contract(self):
         linux_job = self._job("linux-onefile")
@@ -193,6 +235,7 @@ class GitHubActionsLinuxCiConfigurationTests(
             "PyInstaller" + "(",
             "pip" + " install",
             "requests" + ".",
+            "verify_linux_onefile_runtime" + ".main",
         ):
             self.assertNotIn(prohibited_text, test_source)
 

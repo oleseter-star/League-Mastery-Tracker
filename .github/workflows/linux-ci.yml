@@ -81,6 +81,13 @@ jobs:
           test -x dist/LeagueMasteryTracker
           test ! -e dist/LeagueMasteryTracker.exe
           file dist/LeagueMasteryTracker | grep -Eq 'ELF 64-bit.*x86-64'
+      - name: Run isolated Linux onefile runtime acceptance
+        timeout-minutes: 5
+        run: >
+          python -B verify_linux_onefile_runtime.py
+          --executable "$GITHUB_WORKSPACE/dist/LeagueMasteryTracker"
+          --repository-root "$GITHUB_WORKSPACE"
+          --temporary-root "$RUNNER_TEMP/linux-onefile-runtime"
       - name: Create executable checksum
         working-directory: dist
         run: sha256sum LeagueMasteryTracker > LeagueMasteryTracker.sha256

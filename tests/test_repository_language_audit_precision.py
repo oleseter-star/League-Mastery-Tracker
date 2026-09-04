@@ -290,18 +290,18 @@ class CurrentRepositoryLanguageAuditTests(
         )
         self.assertEqual(
             result["counts"]["tracked_files"],
-            357,
+            359,
         )
-        self.assertEqual(len(tracked_paths), 357)
+        self.assertEqual(len(tracked_paths), 359)
         self.assertEqual(result["tracked_paths"], tracked_paths)
-        self.assertEqual(len(outcomes), 357)
+        self.assertEqual(len(outcomes), 359)
         self.assertEqual(
             result["counts"]["audited_text"],
-            183,
+            185,
         )
         self.assertEqual(
             len(outcome_paths_by_category["audited_text"]),
-            183,
+            185,
         )
         self.assertEqual(
             result["counts"]["intentional_binary_exclusion"],
@@ -327,7 +327,7 @@ class CurrentRepositoryLanguageAuditTests(
             ),
             0,
         )
-        self.assertEqual(len(classified_paths), 357)
+        self.assertEqual(len(classified_paths), 359)
         self.assertEqual(len(tracked_paths), len(set(tracked_paths)))
         self.assertEqual(len(outcome_paths), len(set(outcome_paths)))
         self.assertEqual(outcome_paths, tracked_paths)
