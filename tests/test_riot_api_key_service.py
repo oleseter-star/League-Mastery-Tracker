@@ -2,7 +2,8 @@ import os
 import sys
 import types
 import unittest
-from contextlib import ExitStack
+from contextlib import ExitStack, redirect_stderr
+from io import StringIO
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import Mock, patch
@@ -12,6 +13,10 @@ from flask import Flask
 from application.services.riot_api_key_service import (
     RiotApiKeyService,
     RiotApiKeyStorageError,
+)
+from application.services.linux_secret_service import (
+    LinuxSecretService,
+    LinuxSecretServiceStorageError,
 )
 
 
@@ -712,6 +717,120 @@ class LinuxRiotApiKeyServiceTests(unittest.TestCase):
                 RiotApiKeyService.get_api_key()
 
         self.assertNotIn("UnicodeDecodeError", str(raised.exception))
+
+    def test_linux_read_diagnostic_is_disabled_by_default(self):
+        backend = _FakeSecretStorage()
+        backend.collection.search_items = Mock(
+            side_effect=RuntimeError(
+                "RGAPI-diagnostic-secret /sensitive/path "
+                "LeagueMasteryTracker"
+            )
+        )
+        stderr = StringIO()
+
+        with self._linux_boundary(backend), patch.dict(
+            os.environ,
+            {
+                LinuxSecretService.DIAGNOSTIC_ENVIRONMENT_VARIABLE: "",
+            },
+        ), redirect_stderr(stderr):
+            with self.assertRaises(
+                LinuxSecretServiceStorageError
+            ) as raised:
+                LinuxSecretService.read_api_key()
+
+        self.assertEqual(
+            str(raised.exception),
+            "The stored Riot API key could not be read safely.",
+        )
+        self.assertEqual(stderr.getvalue(), "")
+
+    def test_linux_read_diagnostic_reports_get_secret_failure(self):
+        backend = _FakeSecretStorage()
+        item = _FakeSecretServiceItem(
+            backend.collection,
+            {
+                "application": "LeagueMasteryTracker",
+                "secret": "RiotApiKey",
+            },
+            self.api_key.encode("utf-8"),
+        )
+        item.get_secret = Mock(
+            side_effect=RuntimeError(
+                "RGAPI-diagnostic-secret /sensitive/path "
+                "Traceback LeagueMasteryTracker"
+            )
+        )
+        backend.collection.items.append(item)
+        stderr = StringIO()
+
+        with self._linux_boundary(backend), patch.dict(
+            os.environ,
+            {
+                LinuxSecretService.DIAGNOSTIC_ENVIRONMENT_VARIABLE: "1",
+            },
+        ), redirect_stderr(stderr):
+            with self.assertRaises(
+                LinuxSecretServiceStorageError
+            ) as raised:
+                LinuxSecretService.read_api_key()
+
+        self.assertEqual(
+            str(raised.exception),
+            "The stored Riot API key could not be read safely.",
+        )
+        self.assertEqual(
+            stderr.getvalue(),
+            "Linux Secret Service diagnostic: operation=read "
+            "phase=get-secret exception=builtins.RuntimeError\n",
+        )
+        for marker in (
+            "RGAPI-diagnostic-secret",
+            "/sensitive/path",
+            "LeagueMasteryTracker",
+            "RiotApiKey",
+            "Traceback",
+            "The stored Riot API key could not be read safely.",
+        ):
+            self.assertNotIn(marker, stderr.getvalue())
+
+    def test_linux_read_diagnostic_reports_decode_failure(self):
+        backend = _FakeSecretStorage()
+        backend.collection.items.append(
+            _FakeSecretServiceItem(
+                backend.collection,
+                {
+                    "application": "LeagueMasteryTracker",
+                    "secret": "RiotApiKey",
+                },
+                b"\xff\xfe",
+            )
+        )
+        stderr = StringIO()
+
+        with self._linux_boundary(backend), patch.dict(
+            os.environ,
+            {
+                LinuxSecretService.DIAGNOSTIC_ENVIRONMENT_VARIABLE: "1",
+            },
+        ), redirect_stderr(stderr):
+            with self.assertRaises(
+                LinuxSecretServiceStorageError
+            ) as raised:
+                LinuxSecretService.read_api_key()
+
+        self.assertEqual(
+            str(raised.exception),
+            "The stored Riot API key could not be read safely.",
+        )
+        self.assertEqual(
+            stderr.getvalue(),
+            "Linux Secret Service diagnostic: operation=read "
+            "phase=decode-secret "
+            "exception=builtins.UnicodeDecodeError\n",
+        )
+        self.assertNotIn("UnicodeDecodeError:", stderr.getvalue())
+        self.assertNotIn("ff", stderr.getvalue())
 
     def test_linux_legacy_plaintext_migrates_after_secure_save(self):
         backend = _FakeSecretStorage()
