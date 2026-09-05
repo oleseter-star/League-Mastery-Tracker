@@ -25,6 +25,9 @@ APPLICATION_URL = f"http://{LOOPBACK_HOST}:{APPLICATION_PORT}"
 READY_TIMEOUT_SECONDS = 20.0
 PROCESS_EXIT_TIMEOUT_SECONDS = 12.0
 POLL_INTERVAL_SECONDS = 0.1
+MAX_DIAGNOSTIC_BYTES = 4096
+MAX_DIAGNOSTIC_LINES = 12
+MAX_CHILD_LOG_BYTES = 8192
 PERSON_NAME = "Linux Onefile Runtime Person"
 CHAMPION_IMAGE_PATH = "/champions/images/Annie.png"
 
@@ -356,44 +359,200 @@ def snapshot_tree(root, excluded_directories=()):
 def launch_executable(layout, environment, log_name="application.log"):
     """Launch the copied executable in its own process group."""
 
-    log_file = layout.root / log_name
+    stdout_log, stderr_log = _child_log_paths(layout, log_name)
+    stdout_read, stdout_write = os.pipe()
+    stderr_read, stderr_write = os.pipe()
 
-    with log_file.open("wb") as log_stream:
-        return subprocess.Popen(
+    try:
+        process = subprocess.Popen(
             [str(layout.executable)],
             cwd=str(layout.working),
             env=environment,
             stdin=subprocess.DEVNULL,
-            stdout=log_stream,
-            stderr=subprocess.STDOUT,
+            stdout=stdout_write,
+            stderr=stderr_write,
             start_new_session=True,
         )
+    except BaseException:
+        os.close(stdout_read)
+        os.close(stderr_read)
+        raise
+    finally:
+        os.close(stdout_write)
+        os.close(stderr_write)
+
+    captures = (
+        _BoundedLogCapture(stdout_log),
+        _BoundedLogCapture(stderr_log),
+    )
+    threads = (
+        _start_log_capture(captures[0], stdout_read),
+        _start_log_capture(captures[1], stderr_read),
+    )
+    process._child_log_threads = threads
+    return process
+
+
+def _child_log_paths(layout, log_name):
+    log_stem = Path(log_name).stem
+    return (
+        layout.temporary / f"{log_stem}.stdout.log",
+        layout.temporary / f"{log_stem}.stderr.log",
+    )
+
+
+class _BoundedLogCapture:
+    """Retain only the deterministic final bytes from one child stream."""
+
+    def __init__(self, log_path):
+        self.log_path = log_path
+        self.lock = threading.Lock()
+        self.tail = bytearray()
+
+    def append(self, output):
+        with self.lock:
+            self.tail.extend(output)
+
+            if len(self.tail) > MAX_CHILD_LOG_BYTES:
+                del self.tail[:-MAX_CHILD_LOG_BYTES]
+
+            self.log_path.write_bytes(self.tail)
+
+
+def _start_log_capture(capture, file_descriptor):
+    thread = threading.Thread(
+        target=_capture_child_stream,
+        args=(capture, file_descriptor),
+        daemon=True,
+    )
+    thread.start()
+    return thread
+
+
+def _capture_child_stream(capture, file_descriptor):
+    with os.fdopen(file_descriptor, "rb", closefd=True) as stream:
+        while output := stream.read(1024):
+            capture.append(output)
+
+
+def _read_child_log_tail(log_path, repository_root, layout):
+    try:
+        with log_path.open("rb") as log_stream:
+            log_stream.seek(0, os.SEEK_END)
+            byte_count = log_stream.tell()
+            log_stream.seek(max(0, byte_count - MAX_DIAGNOSTIC_BYTES))
+            output = log_stream.read(MAX_DIAGNOSTIC_BYTES)
+    except OSError:
+        return "<unavailable>"
+
+    text = output.decode("utf-8", errors="replace")
+    text = _sanitize_child_diagnostic_text(
+        text,
+        repository_root,
+        layout,
+    )
+    rendered_tail = _limit_rendered_child_tail(text)
+
+    if not rendered_tail:
+        return "<empty>"
+
+    return rendered_tail
+
+
+def _limit_rendered_child_tail(text):
+    """Keep the final diagnostic text within its rendered UTF-8 budget."""
+
+    rendered_tail = "\n".join(
+        text.splitlines()[-MAX_DIAGNOSTIC_LINES:]
+    )
+    encoded_tail = rendered_tail.encode("utf-8")
+
+    if len(encoded_tail) <= MAX_DIAGNOSTIC_BYTES:
+        return rendered_tail
+
+    return encoded_tail[-MAX_DIAGNOSTIC_BYTES:].decode(
+        "utf-8",
+        errors="ignore",
+    )
+
+
+def _sanitize_child_diagnostic_text(text, repository_root, layout):
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+    text = "".join(
+        character
+        if character == "\n" or character.isprintable()
+        else "?"
+        for character in text
+    )
+
+    for path, placeholder in (
+        (_resolve(layout.root), "<isolated-root>"),
+        (_resolve(repository_root), "<repository-root>"),
+    ):
+        text = text.replace(str(path), placeholder)
+
+    text = text.replace(PERSON_NAME, "<redacted>")
+    return re.sub(
+        r"(?i)\b(?:"
+        r"(?:riot[_ -]?api[_ -]?key|api[_ -]?key|csrf[_ -]?token|"
+        r"session(?:id)?|cookie|password|secret)\s*[:=]\s*[^\s,;]+"
+        r"|(?:authorization\s*:\s*)?bearer\s+[^\s,;]+"
+        r")",
+        "<redacted>",
+        text,
+    )
+
+
+def _child_diagnostics(repository_root, layout, log_name):
+    stdout_log, stderr_log = _child_log_paths(layout, log_name)
+    return "\n".join(
+        (
+            "stdout tail:",
+            _read_child_log_tail(stdout_log, repository_root, layout),
+            "stderr tail:",
+            _read_child_log_tail(stderr_log, repository_root, layout),
+        )
+    )
+
+
+def _cleanup_child_logs(layout):
+    for log_path in layout.temporary.glob("*.log"):
+        if log_path.is_file():
+            log_path.unlink()
+
+
+def _join_child_loggers(process):
+    for thread in getattr(process, "_child_log_threads", ()):
+        thread.join(timeout=1.0)
 
 
 def terminate_process_group(process, timeout_seconds=3.0):
     """Terminate and reap every process in one started process group."""
 
-    if process.poll() is not None:
+    try:
+        if process.poll() is not None:
+            process.wait(timeout=timeout_seconds)
+            return
+
+        try:
+            os.killpg(process.pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+
+        try:
+            process.wait(timeout=timeout_seconds)
+            return
+        except subprocess.TimeoutExpired:
+            pass
+
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+
         process.wait(timeout=timeout_seconds)
-        return
-
-    try:
-        os.killpg(process.pid, signal.SIGTERM)
-    except ProcessLookupError:
-        pass
-
-    try:
-        process.wait(timeout=timeout_seconds)
-        return
-    except subprocess.TimeoutExpired:
-        pass
-
-    try:
-        os.killpg(process.pid, signal.SIGKILL)
-    except ProcessLookupError:
-        pass
-
-    process.wait(timeout=timeout_seconds)
+    finally:
+        _join_child_loggers(process)
 
 
 def wait_for_exit(process, timeout_seconds=PROCESS_EXIT_TIMEOUT_SECONDS):
@@ -410,6 +569,7 @@ def wait_for_exit(process, timeout_seconds=PROCESS_EXIT_TIMEOUT_SECONDS):
                     "Executable exited with a non-zero status."
                 )
 
+            _join_child_loggers(process)
             return
 
         time.sleep(POLL_INTERVAL_SECONDS)
@@ -417,14 +577,32 @@ def wait_for_exit(process, timeout_seconds=PROCESS_EXIT_TIMEOUT_SECONDS):
     raise RuntimeAcceptanceError("Executable did not exit before the deadline.")
 
 
-def wait_for_ready(process, session, timeout_seconds=READY_TIMEOUT_SECONDS):
+def wait_for_ready(
+    process,
+    session,
+    repository_root,
+    layout,
+    log_name="application.log",
+    timeout_seconds=READY_TIMEOUT_SECONDS,
+):
     """Poll the documented loopback endpoint under a bounded deadline."""
 
     deadline = time.monotonic() + timeout_seconds
 
     while time.monotonic() < deadline:
-        if process.poll() is not None:
-            raise RuntimeAcceptanceError("Executable exited before readiness.")
+        return_code = process.poll()
+
+        if return_code is not None:
+            _join_child_loggers(process)
+            raise RuntimeAcceptanceError(
+                "Executable exited before loopback readiness "
+                f"(exit code {return_code}).\n"
+                + _child_diagnostics(
+                    repository_root,
+                    layout,
+                    log_name,
+                )
+            )
 
         try:
             response = session.request("GET", "/")
@@ -437,7 +615,11 @@ def wait_for_ready(process, session, timeout_seconds=READY_TIMEOUT_SECONDS):
 
         time.sleep(POLL_INTERVAL_SECONDS)
 
-    raise RuntimeAcceptanceError("Loopback server did not become ready.")
+    raise RuntimeAcceptanceError(
+        "Loopback readiness timeout: process still running at deadline; "
+        f"expected loopback {LOOPBACK_HOST}:{APPLICATION_PORT}.\n"
+        + _child_diagnostics(repository_root, layout, log_name)
+    )
 
 
 def _html_response(response):
@@ -730,7 +912,12 @@ def run_acceptance(executable, repository_root, temporary_root):
             first_process = launch_executable(layout, environment)
             first_session = LocalHttpSession()
             home_html = verify_home_page(
-                wait_for_ready(first_process, first_session)
+                wait_for_ready(
+                    first_process,
+                    first_session,
+                    repository_root,
+                    layout,
+                )
             )
             verify_rendered_assets(first_session, home_html)
             csrf_token = extract_csrf_token(home_html)
@@ -747,7 +934,13 @@ def run_acceptance(executable, repository_root, temporary_root):
             )
             restarted_session = LocalHttpSession()
             restarted_html = verify_home_page(
-                wait_for_ready(restarted_process, restarted_session)
+                wait_for_ready(
+                    restarted_process,
+                    restarted_session,
+                    repository_root,
+                    layout,
+                    log_name="restart.log",
+                )
             )
 
             verify_persisted_person(restarted_session)
@@ -771,6 +964,8 @@ def run_acceptance(executable, repository_root, temporary_root):
         for process in (first_process, restarted_process):
             if process is not None:
                 terminate_process_group(process)
+
+        _cleanup_child_logs(layout)
 
     return "Linux onefile runtime acceptance passed."
 

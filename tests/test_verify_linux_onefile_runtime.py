@@ -195,6 +195,8 @@ class VerifyLinuxOnefileRuntimeTests(unittest.TestCase):
         response = runtime.wait_for_ready(
             process,
             session,
+            Path("/repository"),
+            MagicMock(),
             timeout_seconds=0.1,
         )
 
@@ -217,6 +219,194 @@ class VerifyLinuxOnefileRuntimeTests(unittest.TestCase):
             runtime.signal.SIGTERM,
         )
         self.assertEqual(process.return_code, 0)
+
+    def test_early_exit_readiness_diagnostic_is_bounded_and_redacted(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            parent = Path(temporary_directory)
+            executable = self._create_executable(parent)
+            layout = runtime.create_runtime_layout(
+                executable,
+                parent / "runtime",
+            )
+            stdout_log, stderr_log = runtime._child_log_paths(
+                layout,
+                "application.log",
+            )
+            stdout_log.write_bytes(
+                (
+                    b"line\x00with invalid \xff bytes\n" * 1000
+                    + b"RIOT_API_KEY=not-safe\r\n"
+                    + str(parent).encode("utf-8")
+                    + b"/source.py\n"
+                    + str(layout.root).encode("utf-8")
+                    + b"/application.log\n"
+                )
+            )
+            stderr_log.write_text(
+                "session=not-safe\n"
+                "Authorization: Bearer not-safe\n"
+                "Linux Onefile Runtime Person\n"
+                "RuntimeError: useful failure\n",
+                encoding="utf-8",
+            )
+
+            with self.assertRaises(runtime.RuntimeAcceptanceError) as raised:
+                runtime.wait_for_ready(
+                    _FakeProcess(return_code=17),
+                    _FakeSession([]),
+                    parent,
+                    layout,
+                )
+
+            message = str(raised.exception)
+            self.assertIn("exited before loopback readiness", message)
+            self.assertIn("exit code 17", message)
+            self.assertIn("RuntimeError: useful failure", message)
+            self.assertIn("<repository-root>", message)
+            self.assertIn("<isolated-root>", message)
+            self.assertNotIn(str(parent), message)
+            self.assertNotIn("not-safe", message)
+            self.assertNotIn(runtime.PERSON_NAME, message)
+            self.assertNotIn("\r", message)
+            self.assertNotIn("\x00", message)
+            self.assertLessEqual(len(message.encode("utf-8")), 2 * runtime.MAX_DIAGNOSTIC_BYTES)
+
+    def test_alive_readiness_timeout_has_distinct_diagnostic(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            parent = Path(temporary_directory)
+            executable = self._create_executable(parent)
+            layout = runtime.create_runtime_layout(
+                executable,
+                parent / "runtime",
+            )
+
+            with self.assertRaises(runtime.RuntimeAcceptanceError) as raised:
+                runtime.wait_for_ready(
+                    _FakeProcess(),
+                    _FakeSession([]),
+                    parent,
+                    layout,
+                    timeout_seconds=0.0,
+                )
+
+            self.assertIn("process still running at deadline", str(raised.exception))
+            self.assertIn("expected loopback 127.0.0.1:5000", str(raised.exception))
+
+    def test_ready_process_does_not_read_child_diagnostics(self):
+        process = _FakeProcess()
+        session = _FakeSession(
+            [runtime.HttpResponse(200, {"content-type": "text/html"}, b"ready")]
+        )
+
+        with patch.object(runtime, "_child_diagnostics") as diagnostics:
+            runtime.wait_for_ready(
+                process,
+                session,
+                Path("/repository"),
+                MagicMock(),
+                timeout_seconds=0.1,
+            )
+
+        diagnostics.assert_not_called()
+
+    def test_child_diagnostic_logs_are_removed(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            parent = Path(temporary_directory)
+            executable = self._create_executable(parent)
+            layout = runtime.create_runtime_layout(
+                executable,
+                parent / "runtime",
+            )
+            stdout_log, stderr_log = runtime._child_log_paths(
+                layout,
+                "application.log",
+            )
+            stdout_log.write_text("output", encoding="utf-8")
+            stderr_log.write_text("failure", encoding="utf-8")
+
+            runtime._cleanup_child_logs(layout)
+
+            self.assertFalse(stdout_log.exists())
+            self.assertFalse(stderr_log.exists())
+
+    def test_child_log_capture_retains_only_bounded_tail(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            log_path = Path(temporary_directory) / "child.log"
+            capture = runtime._BoundedLogCapture(log_path)
+            capture.append(b"discarded\n" * runtime.MAX_CHILD_LOG_BYTES)
+            capture.append(b"final traceback line\n")
+
+            self.assertLessEqual(
+                log_path.stat().st_size,
+                runtime.MAX_CHILD_LOG_BYTES,
+            )
+            self.assertIn(
+                b"final traceback line",
+                log_path.read_bytes(),
+            )
+
+    def test_long_malformed_diagnostic_tail_respects_rendered_budget(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            parent = Path(temporary_directory)
+            executable = self._create_executable(parent)
+            layout = runtime.create_runtime_layout(
+                executable,
+                parent / "runtime",
+            )
+            stdout_log, _ = runtime._child_log_paths(
+                layout,
+                "application.log",
+            )
+            stdout_log.write_bytes(
+                b"\xff" * runtime.MAX_CHILD_LOG_BYTES
+                + b" session=not-safe "
+                + str(parent).encode("utf-8")
+                + b" "
+                + str(layout.root).encode("utf-8")
+                + b" "
+                + runtime.PERSON_NAME.encode("utf-8")
+                + b" RuntimeError: final actionable tail"
+            )
+
+            rendered_tail = runtime._read_child_log_tail(
+                stdout_log,
+                parent,
+                layout,
+            )
+
+            self.assertLessEqual(
+                len(rendered_tail.encode("utf-8")),
+                runtime.MAX_DIAGNOSTIC_BYTES,
+            )
+            self.assertEqual(
+                rendered_tail.encode("utf-8").decode("utf-8"),
+                rendered_tail,
+            )
+            self.assertTrue(rendered_tail.endswith("RuntimeError: final actionable tail"))
+            self.assertLessEqual(
+                len(rendered_tail.splitlines()),
+                runtime.MAX_DIAGNOSTIC_LINES,
+            )
+            self.assertIn("<repository-root>", rendered_tail)
+            self.assertIn("<isolated-root>", rendered_tail)
+            self.assertNotIn("not-safe", rendered_tail)
+            self.assertNotIn(str(parent), rendered_tail)
+            self.assertNotIn(runtime.PERSON_NAME, rendered_tail)
+
+    def test_rendered_tail_truncation_preserves_complete_unicode(self):
+        rendered_tail = runtime._limit_rendered_child_tail(
+            "X" + "€" * 1366
+        )
+
+        self.assertEqual(rendered_tail, "€" * 1365)
+        self.assertLessEqual(
+            len(rendered_tail.encode("utf-8")),
+            runtime.MAX_DIAGNOSTIC_BYTES,
+        )
+        self.assertEqual(
+            rendered_tail.encode("utf-8").decode("utf-8"),
+            rendered_tail,
+        )
 
     def test_acceptance_failure_terminates_started_process_group(self):
         with tempfile.TemporaryDirectory() as temporary_directory:
