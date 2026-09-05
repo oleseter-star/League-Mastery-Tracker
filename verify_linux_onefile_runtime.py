@@ -282,6 +282,7 @@ def build_child_environment(layout, proxy_url):
 
     for variable_name in (
         "RIOT_API_KEY",
+        "PYSTRAY_BACKEND",
         "DISPLAY",
         "WAYLAND_DISPLAY",
         "PYTHONPATH",
@@ -306,7 +307,6 @@ def build_child_environment(layout, proxy_url):
             "TMPDIR": str(layout.temporary),
             "TMP": str(layout.temporary),
             "TEMP": str(layout.temporary),
-            "PYSTRAY_BACKEND": "dummy",
             "BROWSER": str(layout.browser_handler),
             "HTTP_PROXY": proxy_url,
             "HTTPS_PROXY": proxy_url,

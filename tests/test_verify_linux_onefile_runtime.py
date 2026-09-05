@@ -166,12 +166,60 @@ class VerifyLinuxOnefileRuntimeTests(unittest.TestCase):
                 )
 
             self.assertNotIn("RIOT_API_KEY", environment)
+            self.assertNotIn("PYSTRAY_BACKEND", environment)
             self.assertNotIn("DISPLAY", environment)
             self.assertNotIn("WAYLAND_DISPLAY", environment)
-            self.assertEqual(environment["PYSTRAY_BACKEND"], "dummy")
             self.assertEqual(environment["HOME"], str(layout.home))
             self.assertEqual(environment["TMPDIR"], str(layout.temporary))
             self.assertEqual(environment["NO_PROXY"], "127.0.0.1,localhost")
+
+    def test_child_launch_omits_dummy_tray_backend(
+        self,
+    ):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            parent = Path(temporary_directory)
+            executable = self._create_executable(parent)
+            layout = runtime.create_runtime_layout(
+                executable,
+                parent / "runtime",
+            )
+
+            with patch.dict(
+                os.environ,
+                {"PYSTRAY_BACKEND": "dummy"},
+                clear=False,
+            ), patch.object(
+                runtime.subprocess,
+                "Popen",
+                return_value=MagicMock(),
+            ) as process_constructor:
+                environment = runtime.build_child_environment(
+                    layout,
+                    "http://127.0.0.1:8123",
+                )
+                runtime.launch_executable(layout, environment)
+
+                self.assertEqual(os.environ["PYSTRAY_BACKEND"], "dummy")
+
+            child_environment = process_constructor.call_args.kwargs["env"]
+            self.assertNotIn("PYSTRAY_BACKEND", child_environment)
+            self.assertEqual(child_environment["HOME"], str(layout.home))
+            self.assertEqual(
+                child_environment["XDG_RUNTIME_DIR"],
+                str(layout.xdg_runtime),
+            )
+            self.assertEqual(
+                child_environment["TMPDIR"],
+                str(layout.temporary),
+            )
+            self.assertEqual(
+                child_environment["HTTP_PROXY"],
+                "http://127.0.0.1:8123",
+            )
+            self.assertEqual(
+                child_environment["NO_PROXY"],
+                "127.0.0.1,localhost",
+            )
 
     def test_harness_has_no_application_source_import(self):
         source = Path(runtime.__file__).read_text(encoding="utf-8")
