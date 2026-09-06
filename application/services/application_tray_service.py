@@ -87,6 +87,30 @@ class ApplicationTrayService:
 
     XORG_ICON_MODULE = "pystray._xorg"
 
+    DIAGNOSTIC_ENVIRONMENT_VARIABLE = (
+        "LEAGUE_MASTERY_TRACKER_TRAY_DIAGNOSTICS"
+    )
+
+    DIAGNOSTIC_PREFIX = "Linux tray diagnostic:"
+
+    DIAGNOSTIC_MAXIMUM_LENGTH = 256
+
+    DIAGNOSTIC_BACKEND_LABELS = {
+        "pystray._appindicator": "appindicator",
+        "pystray._darwin": "darwin",
+        "pystray._dummy": "dummy",
+        "pystray._gtk": "gtk",
+        "pystray._win32": "win32",
+        XORG_ICON_MODULE: "xorg",
+    }
+
+    DIAGNOSTIC_RUNNER_LABELS = frozenset(
+        (
+            "detached",
+            "owned-xorg",
+        )
+    )
+
     ICON_RUNNER_THREAD_NAME = (
         "LeagueMasteryTrackerTrayIcon"
     )
@@ -371,7 +395,15 @@ class ApplicationTrayService:
 
             self._icon = icon
 
-            if self._uses_owned_xorg_runner(icon):
+            uses_owned_xorg_runner = (
+                self._uses_owned_xorg_runner(icon)
+            )
+            self._emit_selection_diagnostic(
+                icon,
+                uses_owned_xorg_runner,
+            )
+
+            if uses_owned_xorg_runner:
                 icon_runner_thread = threading.Thread(
                     target=self._run_xorg_icon,
                     args=(icon,),
@@ -492,6 +524,7 @@ class ApplicationTrayService:
         )
 
     def _raise_linux_tray_unavailable(self, error=None):
+        self._emit_unavailable_diagnostic()
         self._reset_unavailable_tray()
 
         unavailable_error = ApplicationTrayUnavailableError(
@@ -502,6 +535,112 @@ class ApplicationTrayService:
             raise unavailable_error
 
         raise unavailable_error from error
+
+    @classmethod
+    def _emit_selection_diagnostic(
+        cls,
+        icon,
+        uses_owned_xorg_runner,
+    ):
+        if not cls._diagnostics_enabled():
+            return
+
+        try:
+            icon_class = type(icon)
+            backend_label = cls.DIAGNOSTIC_BACKEND_LABELS.get(
+                icon_class.__module__,
+                "unknown",
+            )
+            runner_label = (
+                "owned-xorg"
+                if uses_owned_xorg_runner is True
+                else (
+                    "detached"
+                    if uses_owned_xorg_runner is False
+                    else "unknown"
+                )
+            )
+            safe_runner_label = (
+                runner_label
+                if runner_label in cls.DIAGNOSTIC_RUNNER_LABELS
+                else "unknown"
+            )
+            has_menu_label = cls._capability_label(
+                icon_class,
+                "HAS_MENU",
+            )
+            has_default_action_label = (
+                cls._capability_label(
+                    icon_class,
+                    "HAS_DEFAULT_ACTION",
+                )
+            )
+
+            cls._emit_diagnostic(
+                " ".join(
+                    (
+                        "phase=runner-selection",
+                        "status=selected",
+                        f"backend={backend_label}",
+                        f"has-menu={has_menu_label}",
+                        "has-default-action="
+                        f"{has_default_action_label}",
+                        f"runner={safe_runner_label}",
+                    )
+                )
+            )
+        except Exception:
+            pass
+
+    @classmethod
+    def _emit_unavailable_diagnostic(cls):
+        cls._emit_diagnostic(
+            "phase=initialization status=unavailable"
+        )
+
+    @classmethod
+    def _emit_diagnostic(cls, record):
+        try:
+            if not cls._diagnostics_enabled():
+                return
+
+            line = f"{cls.DIAGNOSTIC_PREFIX} {record}"
+            sys.stderr.write(
+                line[: cls.DIAGNOSTIC_MAXIMUM_LENGTH - 1]
+                + "\n"
+            )
+        except Exception:
+            pass
+
+    @classmethod
+    def _diagnostics_enabled(cls):
+        try:
+            return (
+                cls._is_linux()
+                and os.environ.get(
+                    cls.DIAGNOSTIC_ENVIRONMENT_VARIABLE
+                ) == "1"
+            )
+        except Exception:
+            return False
+
+    @staticmethod
+    def _capability_label(icon_class, attribute_name):
+        try:
+            value = getattr(
+                icon_class,
+                attribute_name,
+            )
+        except Exception:
+            return "unknown"
+
+        if value is True:
+            return "1"
+
+        if value is False:
+            return "0"
+
+        return "unknown"
 
     def _reset_unavailable_tray(self):
         self._icon = None

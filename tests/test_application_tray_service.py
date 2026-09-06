@@ -1,5 +1,6 @@
 import builtins
 import importlib.util
+import io
 import os
 import sys
 import threading
@@ -22,6 +23,8 @@ from application.services.application_tray_service import (
 
 class EventBackedXorgIcon:
     __module__ = "pystray._xorg"
+    HAS_MENU = False
+    HAS_DEFAULT_ACTION = True
 
     def __init__(
         self,
@@ -62,6 +65,29 @@ class EventBackedXorgIcon:
             self.allow_run_to_finish.set()
 
 
+class DiagnosticGtkIcon:
+    __module__ = "pystray._gtk"
+    HAS_MENU = True
+    HAS_DEFAULT_ACTION = True
+
+    def __init__(self):
+        self.run = Mock()
+        self.run_detached = Mock()
+        self.stop = Mock()
+
+
+class UnrecognizedDiagnosticIcon(DiagnosticGtkIcon):
+    __module__ = "synthetic.unrecognized_backend"
+    HAS_MENU = "synthetic capability marker"
+    HAS_DEFAULT_ACTION = None
+
+
+class FailingDiagnosticStream:
+    def write(self, value):
+        del value
+        raise OSError("synthetic stderr failure")
+
+
 class ApplicationTrayServiceTests(
     unittest.TestCase
 ):
@@ -85,6 +111,23 @@ class ApplicationTrayServiceTests(
                 self.shutdown_callback
             ),
         )
+
+    def _start_with_icon(self, icon):
+        pystray_module = Mock()
+        pystray_module.Icon.return_value = icon
+        pystray_module.MenuItem.side_effect = (
+            object(),
+            object(),
+        )
+        pystray_module.Menu.return_value = object()
+        pystray_module.Menu.SEPARATOR = object()
+
+        with patch.object(
+            self.service,
+            "_load_tray_dependencies",
+            return_value=(pystray_module, Image, ImageDraw),
+        ):
+            return self.service.start()
 
     def test_module_defers_tray_dependencies_until_tray_use(self):
         self.assertNotIn("pystray", vars(tray_module))
@@ -343,14 +386,19 @@ class ApplicationTrayServiceTests(
             "org.example.WaylandBackend Traceback marker"
         )
         pystray_module = Mock()
+        diagnostic_output = io.StringIO()
 
         with (
             patch.object(sys, "platform", "linux"),
             patch.dict(
                 os.environ,
-                {"DISPLAY": ":99"},
+                {
+                    "DISPLAY": ":99",
+                    "LEAGUE_MASTERY_TRACKER_TRAY_DIAGNOSTICS": "1",
+                },
                 clear=True,
             ),
+            patch.object(sys, "stderr", diagnostic_output),
             patch.object(
                 self.service,
                 "_load_tray_dependencies",
@@ -374,6 +422,265 @@ class ApplicationTrayServiceTests(
         self.assertNotIn(raw_error, str(context.exception))
         self.assertIsNone(self.service.icon)
         self.assertFalse(self.service.is_running)
+        self.assertEqual(
+            diagnostic_output.getvalue(),
+            "Linux tray diagnostic: phase=initialization "
+            "status=unavailable\n",
+        )
+        self.assertLessEqual(
+            len(diagnostic_output.getvalue()),
+            self.service.DIAGNOSTIC_MAXIMUM_LENGTH,
+        )
+        self.assertTrue(
+            diagnostic_output.getvalue().isascii()
+        )
+        self.assertNotIn(
+            raw_error,
+            diagnostic_output.getvalue(),
+        )
+
+    def test_linux_tray_diagnostic_reports_detached_backend(self):
+        icon = DiagnosticGtkIcon()
+        diagnostic_output = io.StringIO()
+
+        with (
+            patch.object(sys, "platform", "linux"),
+            patch.dict(
+                os.environ,
+                {
+                    "DISPLAY": ":99",
+                    "LEAGUE_MASTERY_TRACKER_TRAY_DIAGNOSTICS": "1",
+                },
+                clear=True,
+            ),
+            patch.object(sys, "stderr", diagnostic_output),
+        ):
+            self.assertIs(
+                self._start_with_icon(icon),
+                icon,
+            )
+
+        self.assertEqual(
+            diagnostic_output.getvalue(),
+            "Linux tray diagnostic: phase=runner-selection "
+            "status=selected backend=gtk has-menu=1 "
+            "has-default-action=1 runner=detached\n",
+        )
+        icon.run_detached.assert_called_once_with()
+        icon.run.assert_not_called()
+
+    def test_linux_tray_diagnostic_sanitizes_unknown_backend(self):
+        icon = UnrecognizedDiagnosticIcon()
+        diagnostic_output = io.StringIO()
+
+        with (
+            patch.object(sys, "platform", "linux"),
+            patch.dict(
+                os.environ,
+                {
+                    "DISPLAY": ":99",
+                    "LEAGUE_MASTERY_TRACKER_TRAY_DIAGNOSTICS": "1",
+                },
+                clear=True,
+            ),
+            patch.object(sys, "stderr", diagnostic_output),
+        ):
+            self._start_with_icon(icon)
+
+        self.assertEqual(
+            diagnostic_output.getvalue(),
+            "Linux tray diagnostic: phase=runner-selection "
+            "status=selected backend=unknown has-menu=unknown "
+            "has-default-action=unknown runner=detached\n",
+        )
+        self.assertNotIn(
+            "synthetic.unrecognized_backend",
+            diagnostic_output.getvalue(),
+        )
+        self.assertNotIn(
+            "synthetic capability marker",
+            diagnostic_output.getvalue(),
+        )
+
+    def test_tray_diagnostics_require_exact_linux_opt_in(self):
+        metadata_accesses = []
+
+        class ObservableCapability:
+            def __init__(self, name, value):
+                self.name = name
+                self.value = value
+
+            def __get__(self, instance, owner):
+                del instance
+                del owner
+                metadata_accesses.append(self.name)
+                return self.value
+
+        class ObservableIconMeta(type):
+            def __getattribute__(cls, name):
+                if name == "__module__":
+                    metadata_accesses.append(
+                        "backend-module"
+                    )
+                return super().__getattribute__(name)
+
+        class ObservableIcon(metaclass=ObservableIconMeta):
+            __module__ = "pystray._gtk"
+            HAS_MENU = ObservableCapability(
+                "HAS_MENU",
+                True,
+            )
+            HAS_DEFAULT_ACTION = ObservableCapability(
+                "HAS_DEFAULT_ACTION",
+                True,
+            )
+
+        icon = ObservableIcon()
+
+        for platform, environment in (
+            ("linux", {"DISPLAY": ":99"}),
+            (
+                "linux",
+                {
+                    "DISPLAY": ":99",
+                    "LEAGUE_MASTERY_TRACKER_TRAY_DIAGNOSTICS": "0",
+                },
+            ),
+            (
+                "linux",
+                {
+                    "DISPLAY": ":99",
+                    "LEAGUE_MASTERY_TRACKER_TRAY_DIAGNOSTICS": "",
+                },
+            ),
+            (
+                "linux",
+                {
+                    "DISPLAY": ":99",
+                    "LEAGUE_MASTERY_TRACKER_TRAY_DIAGNOSTICS": "true",
+                },
+            ),
+            (
+                "win32",
+                {"LEAGUE_MASTERY_TRACKER_TRAY_DIAGNOSTICS": "1"},
+            ),
+            (
+                "darwin",
+                {"LEAGUE_MASTERY_TRACKER_TRAY_DIAGNOSTICS": "1"},
+            ),
+        ):
+            with self.subTest(
+                platform=platform,
+                environment=environment,
+            ):
+                metadata_accesses.clear()
+                diagnostic_output = io.StringIO()
+
+                with (
+                    patch.object(sys, "platform", platform),
+                    patch.dict(
+                        os.environ,
+                        environment,
+                        clear=True,
+                    ),
+                    patch.object(sys, "stderr", diagnostic_output),
+                    patch.object(
+                        ApplicationTrayService,
+                        "_emit_diagnostic",
+                    ) as emitter,
+                ):
+                    self.service._emit_selection_diagnostic(
+                        icon,
+                        False,
+                    )
+
+                self.assertEqual(
+                    metadata_accesses,
+                    [],
+                )
+                emitter.assert_not_called()
+                self.assertEqual(
+                    diagnostic_output.getvalue(),
+                    "",
+                )
+
+        metadata_accesses.clear()
+        diagnostic_output = io.StringIO()
+
+        with (
+            patch.object(sys, "platform", "linux"),
+            patch.dict(
+                os.environ,
+                {
+                    "DISPLAY": ":99",
+                    "LEAGUE_MASTERY_TRACKER_TRAY_DIAGNOSTICS": "1",
+                },
+                clear=True,
+            ),
+            patch.object(sys, "stderr", diagnostic_output),
+        ):
+            self.service._emit_selection_diagnostic(
+                icon,
+                False,
+            )
+
+        self.assertEqual(
+            metadata_accesses,
+            [
+                "backend-module",
+                "HAS_MENU",
+                "HAS_DEFAULT_ACTION",
+            ],
+        )
+        self.assertEqual(
+            diagnostic_output.getvalue(),
+            "Linux tray diagnostic: phase=runner-selection "
+            "status=selected backend=gtk has-menu=1 "
+            "has-default-action=1 runner=detached\n",
+        )
+
+    def test_tray_diagnostic_write_failure_preserves_start(self):
+        icon = DiagnosticGtkIcon()
+
+        with (
+            patch.object(sys, "platform", "linux"),
+            patch.dict(
+                os.environ,
+                {
+                    "DISPLAY": ":99",
+                    "LEAGUE_MASTERY_TRACKER_TRAY_DIAGNOSTICS": "1",
+                },
+                clear=True,
+            ),
+            patch.object(
+                sys,
+                "stderr",
+                FailingDiagnosticStream(),
+            ),
+        ):
+            self.assertIs(
+                self._start_with_icon(icon),
+                icon,
+            )
+
+        self.assertTrue(self.service.is_running)
+        icon.run_detached.assert_called_once_with()
+        icon.run.assert_not_called()
+
+        with (
+            patch.object(sys, "platform", "linux"),
+            patch.dict(
+                os.environ,
+                {
+                    "LEAGUE_MASTERY_TRACKER_TRAY_DIAGNOSTICS": "1",
+                },
+            ),
+            patch.object(sys, "stderr", None),
+        ):
+            self.service._emit_selection_diagnostic(
+                icon,
+                False,
+            )
 
     def test_windows_image_failure_is_not_unavailable(self):
         pystray_module = Mock()
@@ -875,11 +1182,22 @@ class ApplicationTrayServiceXorgRunnerTests(
 
     def test_xorg_start_uses_one_owned_non_daemon_runner(self):
         icon = EventBackedXorgIcon()
+        diagnostic_output = io.StringIO()
 
-        self.assertIs(
-            self._start_with_icon(icon),
-            icon,
-        )
+        with (
+            patch.object(sys, "platform", "linux"),
+            patch.dict(
+                os.environ,
+                {
+                    "LEAGUE_MASTERY_TRACKER_TRAY_DIAGNOSTICS": "1",
+                },
+            ),
+            patch.object(sys, "stderr", diagnostic_output),
+        ):
+            self.assertIs(
+                self._start_with_icon(icon),
+                icon,
+            )
         self.assertTrue(icon.run_started.wait(1.0))
 
         runner = self.service.icon_runner_thread
@@ -892,6 +1210,12 @@ class ApplicationTrayServiceXorgRunnerTests(
         self.assertFalse(runner.daemon)
         self.assertEqual(icon.run_call_count, 1)
         icon.run_detached.assert_not_called()
+        self.assertEqual(
+            diagnostic_output.getvalue(),
+            "Linux tray diagnostic: phase=runner-selection "
+            "status=selected backend=xorg has-menu=0 "
+            "has-default-action=1 runner=owned-xorg\n",
+        )
 
     def test_stop_signals_and_joins_owned_runner(self):
         icon = EventBackedXorgIcon()
