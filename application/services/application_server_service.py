@@ -1,5 +1,6 @@
 import _thread
 import socket
+import sys
 
 import waitress
 
@@ -93,6 +94,13 @@ class ApplicationServerService:
         )
 
         try:
+            if sys.platform.startswith("linux"):
+                test_socket.setsockopt(
+                    socket.SOL_SOCKET,
+                    socket.SO_REUSEADDR,
+                    1,
+                )
+
             test_socket.bind(
                 (
                     self.host,
