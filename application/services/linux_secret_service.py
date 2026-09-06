@@ -45,15 +45,20 @@ class LinuxSecretService:
 
         try:
             diagnostic_phase["name"] = "search-items"
-            items = collection.search_items(
-                cls.ITEM_ATTRIBUTES
+            item = next(
+                iter(
+                    collection.search_items(
+                        cls.ITEM_ATTRIBUTES
+                    )
+                ),
+                None,
             )
 
-            if not items:
+            if item is None:
                 return None
 
             diagnostic_phase["name"] = "get-secret"
-            secret = items[0].get_secret()
+            secret = item.get_secret()
 
             if not isinstance(secret, bytes) or not secret:
                 raise ValueError(
@@ -137,7 +142,7 @@ class LinuxSecretService:
 
             cls._set_read_diagnostic_phase(
                 read_diagnostic_phase,
-                "item-lock-check",
+                "collection-lock-check",
             )
             if collection is None or collection.is_locked():
                 raise LinuxSecretServiceStorageError(

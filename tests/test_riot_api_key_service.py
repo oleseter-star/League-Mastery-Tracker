@@ -52,11 +52,11 @@ class _FakeSecretServiceCollection:
         return self.locked
 
     def search_items(self, attributes):
-        return [
+        return (
             item
             for item in self.items
             if item.attributes == dict(attributes)
-        ]
+        )
 
     def _create_item(
         self,
@@ -371,8 +371,10 @@ class LinuxRiotApiKeyServiceTests(unittest.TestCase):
             RiotApiKeyService
             .SECRET_SERVICE_ATTRIBUTES
         )
-        return backend.collection.search_items(
-            attributes
+        return list(
+            backend.collection.search_items(
+                attributes
+            )
         )
 
     def _call_or_fail(self, callback):
@@ -438,6 +440,93 @@ class LinuxRiotApiKeyServiceTests(unittest.TestCase):
             )
 
         self.assertEqual(active_key, self.api_key)
+
+    def test_linux_read_empty_generator_returns_none_without_diagnostic(
+        self,
+    ):
+        backend = _FakeSecretStorage()
+        backend.collection.search_items = Mock(
+            return_value=iter(())
+        )
+        stderr = StringIO()
+
+        with self._linux_boundary(backend), redirect_stderr(stderr):
+            result = LinuxSecretService.read_api_key()
+
+        self.assertIsNone(result)
+        backend.collection.search_items.assert_called_once_with(
+            LinuxSecretService.ITEM_ATTRIBUTES
+        )
+        self.assertEqual(stderr.getvalue(), "")
+
+    def test_linux_read_consumes_one_unlocked_generator_item(self):
+        backend = _FakeSecretStorage()
+        item = _FakeSecretServiceItem(
+            backend.collection,
+            LinuxSecretService.ITEM_ATTRIBUTES,
+            self.api_key.encode("utf-8"),
+        )
+        item.get_secret = Mock(return_value=item.secret)
+        yielded = []
+
+        def items(attributes):
+            self.assertEqual(
+                attributes,
+                LinuxSecretService.ITEM_ATTRIBUTES,
+            )
+            yielded.append(item)
+            yield item
+            raise AssertionError("read must not consume another item")
+
+        backend.collection.search_items = Mock(side_effect=items)
+        stderr = StringIO()
+
+        with self._linux_boundary(backend), redirect_stderr(stderr):
+            result = LinuxSecretService.read_api_key()
+
+        self.assertEqual(result, self.api_key)
+        self.assertEqual(yielded, [item])
+        item.get_secret.assert_called_once_with()
+        self.assertEqual(stderr.getvalue(), "")
+
+    def test_linux_read_locked_generator_item_is_redacted(self):
+        backend = _FakeSecretStorage()
+        item = _FakeSecretServiceItem(
+            backend.collection,
+            LinuxSecretService.ITEM_ATTRIBUTES,
+            self.api_key.encode("utf-8"),
+        )
+        locked_error = RuntimeError(
+            "locked-item backend detail RGAPI-secret-marker"
+        )
+        item.get_secret = Mock(side_effect=locked_error)
+        backend.collection.items.append(item)
+        stderr = StringIO()
+
+        with self._linux_boundary(backend), patch.dict(
+            os.environ,
+            {
+                LinuxSecretService.DIAGNOSTIC_ENVIRONMENT_VARIABLE: "1",
+            },
+        ), redirect_stderr(stderr):
+            with self.assertRaises(
+                LinuxSecretServiceStorageError
+            ) as raised:
+                LinuxSecretService.read_api_key()
+
+        self.assertEqual(
+            str(raised.exception),
+            "The stored Riot API key could not be read safely.",
+        )
+        self.assertIs(raised.exception.__cause__, locked_error)
+        item.get_secret.assert_called_once_with()
+        self.assertEqual(
+            stderr.getvalue(),
+            "Linux Secret Service diagnostic: operation=read "
+            "phase=get-secret exception=builtins.RuntimeError\n",
+        )
+        self.assertNotIn("locked-item", stderr.getvalue())
+        self.assertNotIn("RGAPI-secret-marker", stderr.getvalue())
 
     def test_linux_stored_key_precedes_environment_key(self):
         backend = _FakeSecretStorage()
@@ -647,6 +736,43 @@ class LinuxRiotApiKeyServiceTests(unittest.TestCase):
         self.assertFalse(status["available"])
         backend.collection.unlock.assert_not_called()
 
+    def test_collection_lock_check_failure_has_accurate_diagnostic_phase(
+        self,
+    ):
+        backend = _FakeSecretStorage()
+        raw_error = RuntimeError(
+            "sensitive-backend-detail RGAPI-secret-marker"
+        )
+        backend.collection.is_locked = Mock(side_effect=raw_error)
+        backend.collection.search_items = Mock()
+        stderr = StringIO()
+
+        with self._linux_boundary(backend), patch.dict(
+            os.environ,
+            {
+                LinuxSecretService.DIAGNOSTIC_ENVIRONMENT_VARIABLE: "1",
+            },
+        ), redirect_stderr(stderr):
+            with self.assertRaises(
+                LinuxSecretServiceStorageError
+            ) as raised:
+                LinuxSecretService.read_api_key()
+
+        self.assertEqual(
+            str(raised.exception),
+            "Persistent Riot API key storage is unavailable.",
+        )
+        self.assertIs(raised.exception.__cause__, raw_error)
+        backend.collection.search_items.assert_not_called()
+        self.assertEqual(
+            stderr.getvalue(),
+            "Linux Secret Service diagnostic: operation=read "
+            "phase=collection-lock-check "
+            "exception=builtins.RuntimeError\n",
+        )
+        self.assertNotIn("sensitive-backend-detail", stderr.getvalue())
+        self.assertNotIn("RGAPI-secret-marker", stderr.getvalue())
+
     def test_backend_operation_failures_are_redacted(self):
         operations = (
             "search_items",
@@ -744,6 +870,47 @@ class LinuxRiotApiKeyServiceTests(unittest.TestCase):
             "The stored Riot API key could not be read safely.",
         )
         self.assertEqual(stderr.getvalue(), "")
+
+    def test_linux_read_diagnostic_reports_search_iteration_failure(self):
+        backend = _FakeSecretStorage()
+
+        def items():
+            raise RuntimeError(
+                "RGAPI-diagnostic-secret /sensitive/path "
+                "Traceback LeagueMasteryTracker"
+            )
+            yield None
+
+        backend.collection.search_items = Mock(return_value=items())
+        stderr = StringIO()
+
+        with self._linux_boundary(backend), patch.dict(
+            os.environ,
+            {
+                LinuxSecretService.DIAGNOSTIC_ENVIRONMENT_VARIABLE: "1",
+            },
+        ), redirect_stderr(stderr):
+            with self.assertRaises(
+                LinuxSecretServiceStorageError
+            ) as raised:
+                LinuxSecretService.read_api_key()
+
+        self.assertEqual(
+            str(raised.exception),
+            "The stored Riot API key could not be read safely.",
+        )
+        self.assertEqual(
+            stderr.getvalue(),
+            "Linux Secret Service diagnostic: operation=read "
+            "phase=search-items exception=builtins.RuntimeError\n",
+        )
+        for marker in (
+            "RGAPI-diagnostic-secret",
+            "/sensitive/path",
+            "LeagueMasteryTracker",
+            "Traceback",
+        ):
+            self.assertNotIn(marker, stderr.getvalue())
 
     def test_linux_read_diagnostic_reports_get_secret_failure(self):
         backend = _FakeSecretStorage()

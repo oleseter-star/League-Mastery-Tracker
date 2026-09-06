@@ -323,9 +323,7 @@ class SettingsApiKeyRouteTests(unittest.TestCase):
             "source": "local",
             "masked_key": None,
             "error": (
-                "The locally stored Riot API key could not "
-                "be decrypted. It may belong to another "
-                "Windows user or may be damaged."
+                "The stored Riot API key could not be read safely."
             ),
         }
 
@@ -353,18 +351,34 @@ class SettingsApiKeyRouteTests(unittest.TestCase):
             )
         )
 
-        self.assertIn(
+        warning = re.search(
+            r'<div\s+class="notice notice-error"\s+role="alert"\s*>'
+            r"(?P<content>.*?)</div>",
+            page,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(warning)
+        warning_text = self.normalize_html_whitespace(
+            re.sub(r"<[^>]+>", " ", warning.group("content"))
+        )
+
+        self.assertEqual(
+            warning_text,
             (
-                "The locally stored Riot API key "
-                "could not be decrypted."
+                "The securely stored Riot API key could not be read. "
+                "It may be unavailable or damaged. Your other "
+                "application data remains safe. Save a new Riot API key "
+                "below to replace it."
             ),
-            normalized_page,
         )
 
         self.assertIn(
             "Save a new Riot API key",
             normalized_page,
         )
+
+        self.assertNotIn("decrypting a file", warning_text)
+        self.assertNotIn("Windows user", warning_text)
 
         self.assertIn(
             key_status["error"],
