@@ -1,0 +1,218 @@
+name: Linux tray G1 feasibility (manual)
+
+# G1 only: no frozen packaging or native tray acceptance.
+# GitHub requires this workflow on the default branch before manual dispatch;
+# select linux-compatibility when dispatching. Never substitute ubuntu-latest.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: linux-tray-g1
+  cancel-in-progress: false
+
+jobs:
+  g1:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+    env:
+      PYTHONDONTWRITEBYTECODE: "1"
+      G1_WORK_ROOT: /var/tmp/lmt-g1-${{ github.run_id }}-${{ github.run_attempt }}
+      G1_DIAGNOSTICS: ${{ runner.temp }}/lmt-g1-diagnostics
+    steps:
+      - name: Guard manual branch and hosted execution
+        run: |
+          test "$GITHUB_EVENT_NAME" = workflow_dispatch
+          test "$GITHUB_REF" = refs/heads/linux-compatibility
+          test "$RUNNER_ENVIRONMENT" = github-hosted
+
+      - name: Check out the dispatched source commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Prepare external paths and record source identity
+        id: prepare
+        run: |
+          source packaging/linux/run_tray_gates.sh
+          test "$(validate_work_root "$G1_WORK_ROOT")" = "$G1_WORK_ROOT"
+          test "$(validate_work_root "$G1_DIAGNOSTICS")" = "$G1_DIAGNOSTICS"
+          umask 077
+          mkdir -m 700 -- "$G1_DIAGNOSTICS"
+          source_commit="$(git rev-parse HEAD)"
+          test "$source_commit" = "$GITHUB_SHA"
+          printf '%s\n' "$source_commit" | tee "$G1_DIAGNOSTICS/source-commit.txt"
+
+      - name: Set up trusted CPython 3.12 x64
+        id: python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+          architecture: x64
+          allow-prereleases: false
+          cache: ""
+
+      - name: Preflight the actual builder and interpreter
+        id: preflight
+        env:
+          G1_PYTHON: ${{ steps.python.outputs.python-path }}
+        run: |
+          # Use the same minimal environment as G1, without tokens or user config.
+          env -i PATH=/usr/bin:/bin LANG=C.UTF-8 \
+            bash -euo pipefail -s -- "$G1_PYTHON" \
+            >"$G1_DIAGNOSTICS/preflight.log" 2>&1 <<'BASH'
+          source packaging/linux/run_tray_gates.sh
+          read_builder_release
+          builder_architecture
+          verify_builder_platform
+          test "$(dpkg --print-architecture)" = amd64
+          glibc_version="$(getconf GNU_LIBC_VERSION)"
+          printf '%s\n' "$glibc_version"
+          test "$glibc_version" = 'glibc 2.35'
+          verify_interpreter "$1"
+          "$1" -I -S -B - "$1" <<'PY'
+          import os
+          import pathlib
+          import struct
+          import sys
+          import sysconfig
+          assert os.path.isabs(sys.argv[1])
+          assert os.path.samefile(sys.argv[1], sys.executable)
+          assert struct.calcsize("P") == 8
+          print("Python:", sys.version)
+          print("Executable:", pathlib.Path(sys.executable).resolve(strict=True))
+          print("Headers:", sysconfig.get_path("include"))
+          PY
+          "$1" -I -B -m pip --version
+          "$1" -I -B -m venv --help >/dev/null
+          df -h /var/tmp
+          BASH
+
+      - name: Provision the disposable hosted VM for G1
+        id: provision
+        timeout-minutes: 15
+        run: |
+          # tail drains the producer; retained output is capped at 1 MiB.
+          set +e
+          sudo -n bash packaging/linux/provision_tray_lab.sh \
+            --disposable-builder --build 2>&1 |
+            tail -c 1048576 >"$G1_DIAGNOSTICS/provision.tail.log"
+          pipeline_status=("${PIPESTATUS[@]}")
+          set -e
+          record_status=0
+          printf '%s\n' "${pipeline_status[0]}" \
+            >"$G1_DIAGNOSTICS/provision-status.txt" || record_status=$?
+          if (( pipeline_status[0] != 0 )); then
+            exit "${pipeline_status[0]}"
+          fi
+          if (( pipeline_status[1] != 0 )); then
+            exit "${pipeline_status[1]}"
+          fi
+          exit "$record_status"
+
+      - name: Run only G1 and preserve its exit status
+        id: gate
+        timeout-minutes: 30
+        env:
+          G1_PYTHON: ${{ steps.python.outputs.python-path }}
+        run: |
+          set +e
+          env -i PATH=/usr/bin:/bin LANG=C.UTF-8 \
+            PYTHONDONTWRITEBYTECODE=1 PIP_NO_CACHE_DIR=1 \
+            bash packaging/linux/run_tray_gates.sh G1 \
+              --python "$G1_PYTHON" --work-root "$G1_WORK_ROOT" 2>&1 |
+            tail -c 1048576 >"$G1_DIAGNOSTICS/g1.tail.log"
+          pipeline_status=("${PIPESTATUS[@]}")
+          set -e
+          record_status=0
+          printf '%s\n' "${pipeline_status[0]}" \
+            >"$G1_DIAGNOSTICS/g1-status.txt" || record_status=$?
+          if (( pipeline_status[0] != 0 )); then
+            exit "${pipeline_status[0]}"
+          fi
+          if (( pipeline_status[1] != 0 )); then
+            exit "${pipeline_status[1]}"
+          fi
+          exit "$record_status"
+
+      - name: Require the validated G1 publication
+        id: publication
+        env:
+          G1_PYTHON: ${{ steps.python.outputs.python-path }}
+        run: |
+          # The unchanged G1 collector performs full evidence validation.
+          # This check guards publication/retention; it does not replace it.
+          "$G1_PYTHON" -I -B - "$G1_WORK_ROOT" "$G1_DIAGNOSTICS" <<'PY'
+          import json
+          import pathlib
+          import stat
+          import sys
+          source = pathlib.Path(sys.argv[1]) / "reports/provenance.json"
+          assert stat.S_ISREG(source.lstat().st_mode)
+          with source.open("rb") as stream:
+              content = stream.read(16 * 1024 * 1024 + 1)
+          if not content or len(content) > 16 * 1024 * 1024:
+              raise SystemExit("Missing or oversized G1 provenance; not published.")
+          report = json.loads(content)
+          assert report["builder_os"] == "ubuntu-22.04"
+          assert report["architecture"] == "x86_64"
+          destination = pathlib.Path(sys.argv[2]) / "provenance.json"
+          with destination.open("xb") as stream:
+              stream.write(content)
+          PY
+
+      - name: Retain validated provenance and source identity
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: linux-tray-g1-provenance-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ env.G1_DIAGNOSTICS }}/provenance.json
+            ${{ env.G1_DIAGNOSTICS }}/source-commit.txt
+            ${{ env.G1_DIAGNOSTICS }}/preflight.log
+            ${{ env.G1_DIAGNOSTICS }}/g1-status.txt
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Select bounded failure diagnostics
+        if: ${{ failure() && steps.prepare.outcome == 'success' }}
+        env:
+          PREFLIGHT_OUTCOME: ${{ steps.preflight.outcome }}
+          PROVISION_OUTCOME: ${{ steps.provision.outcome }}
+          G1_OUTCOME: ${{ steps.gate.outcome }}
+          PUBLICATION_OUTCOME: ${{ steps.publication.outcome }}
+        run: |
+          printf 'preflight=%s\nprovision=%s\ng1=%s\npublication=%s\n' \
+            "$PREFLIGHT_OUTCOME" "$PROVISION_OUTCOME" \
+            "$G1_OUTCOME" "$PUBLICATION_OUTCOME" >"$G1_DIAGNOSTICS/failure.txt"
+          # Fixed allowlist only: never upload the work root or virtualenv.
+          for relative in tmp/build-tool-trace.txt build/pygobject/meson-logs/meson-log.txt; do
+            candidate="$G1_WORK_ROOT/$relative"
+            if [[ -f "$candidate" && ! -L "$candidate" ]]; then
+              tail -c 1048576 -- "$candidate" \
+                >"$G1_DIAGNOSTICS/${candidate##*/}.tail.log"
+            fi
+          done
+
+      - name: Retain failure diagnostics (not G1 evidence)
+        if: ${{ failure() && steps.prepare.outcome == 'success' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: linux-tray-g1-failure-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ env.G1_DIAGNOSTICS }}/source-commit.txt
+            ${{ env.G1_DIAGNOSTICS }}/preflight.log
+            ${{ env.G1_DIAGNOSTICS }}/provision.tail.log
+            ${{ env.G1_DIAGNOSTICS }}/provision-status.txt
+            ${{ env.G1_DIAGNOSTICS }}/g1.tail.log
+            ${{ env.G1_DIAGNOSTICS }}/g1-status.txt
+            ${{ env.G1_DIAGNOSTICS }}/failure.txt
+            ${{ env.G1_DIAGNOSTICS }}/build-tool-trace.txt.tail.log
+            ${{ env.G1_DIAGNOSTICS }}/meson-log.txt.tail.log
+          if-no-files-found: error
+          retention-days: 7
