@@ -3,9 +3,14 @@
 ## Status and scope
 
 This document specifies a planned Linux tray implementation. The current
-application does not implement this design. In particular, no successful GTK
-binding compilation, standalone frozen package, native menu interaction, or
-redistribution review is claimed here.
+application does not implement this design. The initial Slice 1A status was
+"G1 has not run". Subsequently supplied run evidence identifies G1 run
+34900930843, attempt 1, source
+`33517676f8c7a3b3d47a4a53d0afc0f3a127aa25`, and reported exit status 0.
+Its retained artifact contains only `provenance.json`, `source-commit.txt`,
+`preflight.log`, and `g1-status.txt`, not reusable build inputs. This is
+historical compilation/binding evidence, not a claim of a standalone frozen
+package, native menu interaction, or completed redistribution review.
 
 The target is a standalone Ubuntu 22.04-compatible x86-64 onefile package with
 an interactive tray menu on XFCE/X11. The menu retains the existing **Open**
@@ -277,7 +282,8 @@ with its declared `setuptools.build_meta` backend, installs it, and only then
 allows PyGObject metadata preparation and its declared `mesonpy` wheel build.
 Build isolation is disabled. Published metadata and upstream build definitions
 support attempting this combination; Ubuntu 22.04 with the selected CPython
-3.12 still requires proof:
+3.12 required the G1 proof described above; future inputs must be linked to
+their own validated build evidence:
 
 * https://pypi.org/project/pycairo/1.26.1/
 * https://raw.githubusercontent.com/pygobject/pycairo/v1.26.1/pyproject.toml
@@ -338,6 +344,195 @@ Relevant GTK sources and settings contract:
 * https://docs.gtk.org/gtk3/class.Settings.html
 
 ## Provenance and redistribution
+
+### Slice A: offline native-input manifest (schema 1)
+
+This is a new pre-G2 validation implementation, not a change to the approved
+resource table or the G1 collector. `capture_tray_native_inputs.py` reads an
+explicit offline bundle on the disposable builder. It neither acquires inputs
+nor freezes anything. It publishes a separate manifest; the original G1 report
+and its `availability: unavailable` / `required_before: G2-freeze` remain
+unchanged. Historical report-only artifacts cannot satisfy this validator.
+
+The CLI, using an operator-supplied trusted CPython 3.12 environment with the
+existing G1 collector's Python dependencies, is:
+
+```bash
+/absolute/trusted/python3.12 -I -B packaging/linux/capture_tray_native_inputs.py \
+  --bundle /absolute/offline-bundle \
+  --trusted-keyring /absolute/operator-trusted/ubuntu-archive.gpg \
+  --g1-sha256 INDEPENDENTLY_VERIFIED_G1_REPORT_SHA256 \
+  --project-root /absolute/selected-checkout \
+  --source-commit FULL_SELECTED_SOURCE_COMMIT \
+  --output /absolute/external-evidence/native-inputs.json
+```
+
+Paths here are parameters, not assertions that these inputs already exist.
+The output must be new and outside the project. No files are written inside
+the bundle or checkout by inspection; bounded subprocess spools use `/tmp`.
+Production adapters invoke fixed system `gpgv`, `dpkg`, `dpkg-query`,
+`dpkg-deb`, `git`, `gzip`, `xz`, and `bzip2` without a shell. Their absence,
+failure, timeout, or excessive output rejects the bundle. No package scripts
+or supplied Python code are executed, and no application/GI/GTK is imported.
+
+The operator trusts the interpreter, installed inspection tools and package
+database, selected Git commit, and an independently established G1 report
+digest/source-commit pair. The digest is not itself a signature. The curated
+repository keyring must be a regular file outside the untrusted bundle;
+claimed bundle fingerprints or authentication flags confer no trust. `gpgv`
+verifies detached `Release.gpg` against the actual `Release`, requiring a
+successful result and a strong-digest `VALIDSIG`. Keyring curation includes
+revocation/expiry policy: `gpgv` alone does not supply that policy. The builder
+must actually be Ubuntu 22.04, x86-64, glibc 2.35, CPython 3.12, with its exact
+interpreter bytes/version matching G1. Inspection is not an OS snapshot lock;
+the builder and bundle must remain quiescent through later freeze integration.
+
+`bundle.json` has exactly these top-level fields; unknown fields and duplicate
+JSON keys are rejected. All bundle filenames are relative, traversal-free,
+bounded paths without symlink components. SHA-256 and byte counts in the
+published manifest are calculated from files, not accepted as declarations.
+
+| Field | Required schema-1 content |
+| --- | --- |
+| `schema_version` | Integer `1` |
+| `g1` | `report`; `requirements` mapping both pinned filenames to files; `sources` and `wheels` mappings keyed by `pycairo` and `PyGObject`; `toolchain` mapping every recorded wheel filename to a file; `trace`, `verification`, `compiler_evidence` keyed by `PyGObject`, and `proxies` keyed by `cc`, `ld`, `meson`, `ninja`, `pkg-config` |
+| `repositories` | List of `{id, uri, release, signature, packages, sources, packages_index, sources_index}`; file values point to supplied bytes, index values to signed Release paths |
+| `sources` | List of `{repository, name, version, files}`; `files` maps every exact indexed source basename to a bundle file |
+| `packages` | List of `{id, repository, archive, classification, selected, consumed}`; `id` is `name:amd64` or `name:all` |
+| `non_dpkg` | Exactly one `cpython`, one `cpython-library`, and the two resource records described below |
+
+G1's trace also requires its empty sibling `.pending` directory and no failure
+marker. All actual G1 sources, binding wheels, ten toolchain wheels, requirements,
+verification, trace, proxies, and Meson evidence must match the immutable
+report. Existing G1 bounded metadata/backend/wheel/trace validators are reused.
+An empty trace or substituted wheel cannot be repaired by native declarations.
+The selected commit's two requirements files must equal the supplied bytes.
+
+Repository `uri` is a declared HTTPS retrieval location, not proof of where
+offline files were downloaded. Authenticated origin comes from signed Release
+metadata: Ubuntu, jammy, an admitted jammy pocket, amd64, and component/index
+paths. Signed SHA-256 entries must identify the actual uncompressed `Packages`
+and `Sources` bytes. Release Date must not be future; Valid-Until is enforced
+when present. Release hash identifies the snapshot; absent Valid-Until does not
+establish freshness beyond its signed date. Indexes in compressed-only form
+are unsupported in schema 1. Separate repository entries can describe different
+components/pockets. No replacement versions or mirrors are resolved online.
+
+Each binary archive must match one exact index record's package, version,
+architecture, size, SHA-256 and filename. `dpkg-deb` supplies bounded control
+and payload tar streams. Control metadata, authenticated Packages metadata,
+and live `dpkg-query` installed state must agree, including dependencies and
+Provides. Source/Version selects the exact source index record, all its files,
+and one `.dsc`; its SHA-256 list and identity must agree with Sources. The
+signed index authenticates `.dsc` bytes, not its optional developer signature.
+Supported source formats are 1.0 and 3.0 (native/quilt), using tar.gz/tar.xz/
+tar.bz2 and legacy diff.gz; no source is extracted, applied, or executed.
+
+Closure roots are the twelve exact-version G1 build seeds plus package owners
+of every declared resource-table root and the recorded native build tools.
+The seeds alone are not closure evidence. `selected` gives one supplied
+provider ID per installed Pre-Depends group followed by each Depends group,
+in metadata order. Alternatives and virtual/versioned Provides are evaluated
+against that provider's actual metadata; Debian version validation/comparison
+uses `dpkg`, including epochs and revisions. amd64/all, `:amd64`, `:native`,
+and `:any` with Multi-Arch allowed are supported. An explicit `:amd64` requires
+amd64 rather than all, and `:native` excludes Multi-Arch foreign, following
+dpkg's native-build architecture selection. Foreign architectures and
+unexpanded source-only dependency restrictions are rejected. Every selected
+provider is traversed, including cycles; unrelated supplied packages and
+unreferenced source packages are rejected. Recommends/Suggests are not mandatory
+installed dependency edges. Files actually consumed outside this closure must
+be declared by later integration, not silently treated as optional packages.
+
+Classifications are `bundled-runtime` (requires declared consumed files),
+`build-only`, and `declared-host` (only libc6/libc-bin, no consumed files).
+The latter records the resource contract's libc ABI exception, not permission
+to treat GTK, GI, fonts, or desktop packages as available on the target.
+X11/Xauthority, kernel and permitted desktop services remain later host checks.
+Each `consumed` record is `{path, archive_path, role, transformation}`: an
+absolute installed path, identical root-relative archive path, and
+`transformation: identity`. Required roles are `typelib:NAME-VERSION` for all
+eleven table namespaces, `native:gtk|gdk|gdkpixbuf|pango|atk|girepository|cairo`,
+`font:dejavu-sans`, and `build:cc|ld|ninja|pkg-config`. Additional consumed files
+use `dependency`, which cannot seed an unrelated package. Roles constrain
+basenames/ownership and build-tool identities; they do not prove runtime loading.
+
+Consumed regular bytes and every symlink hop must match archive payloads. The
+manifest records each link location, exact target text and resolved target,
+including links in path components and relative targets. Resolution checks
+components in filesystem order (including `..` after a link); matching final
+bytes cannot substitute for matching intermediate links. Implicit tar parent
+directories must be actual directories, never unrecorded links. The same chain
+and final regular-file identity are checked again before publication. Binary
+absolute symlinks are interpreted within the package root, never extracted;
+source absolute links, escaping links, special/sparse files and members below
+links are rejected. A consumed link must resolve within the same package's
+payload, with at most 40 hops; cross-package consumed links are unsupported
+and must not be replaced with guessed bytes. Canonical real-file declarations
+can avoid an unnecessary alias. No stripping or template rendering is allowed
+in this input manifest. Later G2 must record permitted transformations and
+their actual output identities separately.
+
+`non_dpkg` records contain `{kind, path, bundle_path, transformation}` with
+identity-only copies of the running canonical interpreter and its sysconfig
+shared library. Each `project-resource` additionally has `project_path`, exactly
+the CSS or fonts.conf.in resource-table path; bytes must match both the live
+file and `git show` for the selected commit. Python wheels are separately
+identified under G1, never assigned invented dpkg ownership. These records are
+not a claim that the complete CPython standard-library or final frozen set has
+been inventoried. The two project resources are not implemented by Slice A;
+their absence blocks a real complete manifest until their implementation slice.
+
+| Bound | Schema-1 limit |
+| --- | --- |
+| JSON input/output; uncompressed index | 16 MiB each; 256 MiB each |
+| Regular input/archive/member; unique bundle bytes | 512 MiB each; 8 GiB total |
+| Repositories; packages/source identities; bundle/consumed files | 8; 512 each; 20,000 each |
+| Index/checksum records; dependency edges; pathname | 100,000; 8,192; 4,096 UTF-8 bytes |
+| Metadata paragraph/line, captured control, signatures/keyring | 1 MiB each; 256 fields per paragraph; control budgets count encoded bytes |
+| Tar traversal; declared content/decompressed stream | 100,000 headers; 2 GiB per stream |
+| PAX local/global and GNU long-name/link payloads | 1 MiB cumulative per tar, charged before internal decoding; 100,000 PAX records; 40 nested extended headers |
+| Consumed link traversal; JSON output nesting | 40 hops; 64 levels |
+| External stdout/stderr; cumulative produced bytes | Metadata 1 MiB or tar 2 GiB (Git input 512 MiB); stderr 1 MiB; 16 GiB cumulative |
+| External execution | 20,000 commands; 30 seconds each; 1 GiB child address space; 31 CPU seconds; xz dictionary 512 MiB |
+| Validation | 30-minute cooperative overall deadline, checked while reading/inspecting |
+
+Compressed size and authenticated hash precede archive subprocesses; output
+bounds precede tar parsing. Tar inspection iterates without `getmembers()` or
+extraction, charges hidden extended headers, and rejects truncation and hidden
+concatenated content. GNU sparse headers and GNU/SCHILY PAX sparse markers,
+including empty maps, are rejected before internal sparse processing. Ordinary
+PAX record lengths/counts are validated before the library decodes them.
+Control indexes are consumed line by line, with line/paragraph byte budgets,
+field and record counts checked before further allocation. LF/CRLF records and
+space/tab continuations remain supported; bounded continuation fragments are
+joined only when the paragraph completes. Paragraph budgets include field names
+and encoded line terminators. Limits are fail-closed supported-input limits,
+not an empirical assertion that an as-yet-uncollected full native corpus fits them.
+Consumed files, installed metadata, trusted keyring and supplied file hashes
+are rechecked before publication to detect ordinary drift.
+
+Only a fully validated report gains `native_package_archives.availability:
+validated-offline`, scoped to `declared-input-closure` in the new manifest.
+Completion checks encoded JSON size without constructing large string tokens,
+then streams deterministic, sorted, ASCII-escaped JSON to a private adjacent
+temporary file under a running byte budget. Escapes, non-ASCII characters,
+pretty-print whitespace and the final newline count toward the 16-MiB limit.
+Only complete output is fsynced and exclusively hard-linked to the new output
+name. Failure returns nonzero and never replaces existing evidence or publishes
+partial JSON.
+Temporary cleanup is best effort after successful publication; no directory
+fsync/crash-durability or concurrent-modifier guarantees are claimed.
+
+Later G2 integration must compare PyInstaller's actual collected inputs,
+GIRepository selection, ELF dependency closure, CPython files, destinations,
+spec/hooks, and transformed outputs with this declared set and selected source
+commit before freezing/publication. Any extra, missing or changed input blocks
+that integration. Slice A cannot prove that reconciliation, standalone
+operation, the helper topology, redistribution completeness, or native tray
+interaction. It does not enable G2–G7 in the existing runner.
+
+### Existing G1 and release evidence
 
 G1 records resolved Python distributions; selected native package versions;
 requirement, downloaded-source and built-wheel hashes; source identities; raw
@@ -424,7 +619,7 @@ invent a harness. Existing files are marked “modify”; all others are new.
 
 | Slice | Exact files | Scope and prerequisite gate | Independently committable; remaining gap |
 | --- | --- | --- | --- |
-| 1A | new `docs/linux-tray-design.md`, `docs/linux-tray-acceptance.md`, `requirements-linux-tray.txt`, `requirements-linux-tray-build.txt`, `packaging/linux/provision_tray_lab.sh`, `packaging/linux/run_tray_gates.sh`, `packaging/linux/probe/verify_bindings.py`, `packaging/linux/capture_tray_provenance.py`, and `tests/test_linux_tray_gate_configuration.py` | contract, pins, provisioning, G1 runner/verifier/provenance and mocks | yes; G1 is still unexecuted |
+| 1A | new `docs/linux-tray-design.md`, `docs/linux-tray-acceptance.md`, `requirements-linux-tray.txt`, `requirements-linux-tray-build.txt`, `packaging/linux/provision_tray_lab.sh`, `packaging/linux/run_tray_gates.sh`, `packaging/linux/probe/verify_bindings.py`, `packaging/linux/capture_tray_provenance.py`, and `tests/test_linux_tray_gate_configuration.py` | contract, pins, provisioning, G1 runner/verifier/provenance and mocks | yes; at initial Slice 1A publication, G1 was still unexecuted |
 | 1B | no repository change; evidence below the operator's G1 work root | run G1 on disposable Ubuntu 22.04/x86-64 with trusted CPython 3.12 | evidence gate only; no frozen package |
 | 2 | new `packaging/linux/tray_resource_manifest.py`, `packaging/linux/hooks/hook-gi.py`, `packaging/linux/runtime_hooks/pyi_rth_linux_tray.py`, `packaging/linux/resources/theme/LMT/gtk-3.0/gtk.css`, `packaging/linux/resources/fonts.conf.in`, `application/services/linux_tray_protocol.py`, root `linux_tray_bootstrap.py`, and corresponding `tests/test_linux_tray_protocol.py`, `tests/test_linux_tray_packaging_contract.py` | implement the table above, collect the G2-required native archive/source/hash evidence, establish the H-only environment, protocol codec, and early private-helper dispatch; requires G1 and native archive evidence | yes; no executable probe or production GTK adapter |
 | 3A | new `packaging/linux/probe/linux_tray_probe.py`, `packaging/linux/LinuxTrayProbe.spec`, `packaging/linux/inspect_tray_probe.py`; modify `packaging/linux/run_tray_gates.sh`; add `tests/test_linux_tray_probe_tooling.py` | build/archive/topology driver and G2 | yes; no native interaction |

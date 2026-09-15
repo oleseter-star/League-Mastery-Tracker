@@ -2,7 +2,13 @@
 
 ## Current status
 
-Only Slice 1A documentation and G1 tooling are defined here. G1 has not run.
+At initial Slice 1A publication, "G1 has not run" was the recorded status.
+Subsequently supplied evidence reports G1 run 34900930843, attempt 1, source
+`33517676f8c7a3b3d47a4a53d0afc0f3a127aa25`, with exit status 0. Its retained
+artifact contains only `provenance.json`, `source-commit.txt`, `preflight.log`,
+and `g1-status.txt`; it does not retain wheels, sources, toolchain artifacts,
+or native archives. This is historical compilation/binding evidence, not a
+reusable build-input bundle. Slice A now defines offline native-input validation.
 G2 through G7 are required to fail as unimplemented until their prerequisite
 implementation slices land. Nothing in this document certifies a functioning
 or standalone package.
@@ -131,6 +137,56 @@ G2–G7 currently reject with nonzero status; the planned invocations above are
 contracts for their listed implementation slices, not working commands.
 
 ## G2 — frozen probe inventory
+
+### Slice A prerequisite: offline native inputs
+
+The new `packaging/linux/capture_tray_native_inputs.py` implements only the
+schema-1 prerequisite documented in the design's "Slice A: offline native-input
+manifest" section. It does not implement the frozen probe or acquire packages.
+Supply the actual G1 artifacts, authenticated repository metadata, exact binary
+and source archives, selected dependency providers, consumed installed files,
+CPython copies and project resources on the matching disposable builder.
+The historical report-only artifact is insufficient, and its immutable native
+archive `unavailable` label is not changed. Missing project resources also block
+a complete real manifest until their later implementation.
+
+Acceptance checks for this slice are bounded offline fixtures, not G2 execution:
+
+* valid actual archive/index/payload parsing, hashing, selected closure and
+  exclusive new-manifest publication; G1 remains byte-for-byte unchanged;
+* alternatives, versioned virtual providers, Pre-Depends, amd64/all and explicit
+  architecture qualification use actual supplied metadata and dpkg comparison;
+* missing/conflicting providers, exact versions, indexes, source material,
+  invalid signature verification, modified installed files, G1/wheel inputs,
+  and unsupported transformations prevent publication;
+* unsafe links/paths, malformed/truncated archives, extended-header and stream
+  expansion, metadata/count limits, failed or timed-out producers fail closed;
+* multi-hop and path-component links retain every authenticated location,
+  target text and resolved target; changed intermediate links to byte-identical
+  files fail both initial validation and the final chain recheck;
+* GNU/PAX sparse encodings, including empty maps, fail before internal sparse
+  parsing; ordinary PAX lengths/counts are bounded before decoding;
+* incremental control parsing enforces encoded line/paragraph, field, record
+  and total index limits; JSON size preflight and streamed publication bound
+  individual escaped values and total bytes without whole-output serialization;
+* existing evidence is never overwritten, including publication I/O failure.
+
+Trust comes from the external curated keyring, trusted inspection environment,
+and independently established G1 digest/selected-commit pair, not bundle flags.
+Live installed metadata and consumed bytes are compared with authenticated
+archive contents; twelve G1 packages are roots, not the complete closure.
+The schema admits only identity transformations. Child exit/output/timeout
+limits apply before archive inspection; archive-controlled paths are never
+extracted. The separate `validated-offline` manifest covers declared inputs
+only, with the exact limits and unsupported cases specified in the design.
+
+Required later integration: compare every actual frozen input and destination,
+including CPython files, selected typelibs/native libraries and spec/hook
+transformations, against this manifest before freezing/publication. Extra,
+missing or changed inputs fail; a declaration alone is not evidence that
+PyInstaller consumed it. No Slice A result proves G2 or native interaction.
+
+### Frozen probe (not implemented by Slice A)
 
 Implementation prerequisite: reusable narrow PyInstaller hooks, resource
 collector, runtime environment hook, protocol/bootstrap, archive inspector, and
