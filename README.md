@@ -13,7 +13,7 @@ Application version: 2.0.0
 Windows executable: LeagueMasteryTracker.exe
 ```
 
-League Mastery Tracker 2.0 is still undergoing integration and release-readiness work. The repository contains the complete core workflows described below, but this README does not claim that Step 10 or the 2.0 release has completed final Windows acceptance.
+League Mastery Tracker 2.0 passed its native Windows build and acceptance (Steps 10.16–10.17) on 2026-09-29. The repository contains the complete core workflows described below; the final release steps are tracked in [docs/STEP10_WINDOWS_ACCEPTANCE_HANDOFF.md](docs/STEP10_WINDOWS_ACCEPTANCE_HANDOFF.md).
 
 The verified Step 10.5 historical checkpoint was:
 
@@ -35,7 +35,7 @@ The current Step 10.15 verification is:
 13 intentional skips
 ```
 
-It consists of one restricted full-suite run, two sandbox-only local-loopback socket permission errors, and one focused elevated rerun of the 16-test application-server module; the reconciled totals replace only those two errors. See the tracked [Step10-test-results.txt](Step10-test-results.txt) artifact for the complete evidence and skip categories. Native Windows build and acceptance remain pending Steps 10.16–10.17.
+It consists of one restricted full-suite run, two sandbox-only local-loopback socket permission errors, and one focused elevated rerun of the 16-test application-server module; the reconciled totals replace only those two errors. See the tracked [Step10-test-results.txt](Step10-test-results.txt) artifact for the complete evidence and skip categories. The native Windows build and acceptance evidence is recorded in the same artifact and in the Windows acceptance handoff.
 
 ## Features
 
@@ -119,7 +119,7 @@ With the project environment active, run the unittest suite with:
 python -m unittest discover -s tests -v
 ```
 
-Platform-specific or optional-environment skips should be reviewed in context; they are not test failures. Later focused additions can change the current number of discovered tests. This README does not claim a completed Windows build, PyInstaller build success, executable launch success, Windows acceptance, or final release readiness.
+Platform-specific or optional-environment skips should be reviewed in context; they are not test failures. Later focused additions can change the current number of discovered tests. Windows build and acceptance results are recorded in [Step10-test-results.txt](Step10-test-results.txt); this section describes only the automated suite.
 
 ## Windows builds
 
@@ -151,7 +151,7 @@ dist\LeagueMasteryTracker.exe
 
 The standard and explicitly named one-file specifications are retained as separate build targets, but the current repository does not define a separate one-folder artifact. Running both commands in sequence targets the same output filename.
 
-Both specifications include Flask templates, static assets, the Bundled dataset, local Champion images, and required `pystray` modules. `pyinstaller_build_metadata.py` derives the executable name and Windows version resource from the canonical product configuration. The packaged executable uses `console=False`; final release acceptance still requires a clean Windows build and verification of Explorer's file details. Do not treat source-level packaging tests as a substitute for that check.
+Both specifications include Flask templates, static assets, the Bundled dataset, local Champion images, and required `pystray` modules. `pyinstaller_build_metadata.py` derives the executable name and Windows version resource from the canonical product configuration. The packaged executable uses `console=False`. `packaging/windows/record_windows_build.ps1` builds from a clean tree and verifies the console-free subsystem and version metadata; the application icon is confirmed in File Explorer. Do not treat source-level packaging tests as a substitute for a native Windows build.
 
 ## Application data
 

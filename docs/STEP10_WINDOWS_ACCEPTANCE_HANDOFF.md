@@ -2,10 +2,10 @@
 
 This checklist completes the native Windows work that remains after the
 source implementation through Step 10.15. Step 10.14 language verification
-and Step 10.15 regression verification are complete. Steps 10.16 through
-10.19 remain pending; the Step 10.16 build now has a recording script and a
-CI build job. No Windows build or Windows acceptance result is claimed by
-this document.
+and Step 10.15 regression verification are complete. The native Windows
+build (Step 10.16) and acceptance (Step 10.17) passed on 2026-09-29; the
+results are recorded below and summarized in `Step10-test-results.txt`. The
+remaining steps are the completion and final gate at the end.
 
 ## Evidence already verified
 
@@ -103,6 +103,7 @@ Fill in the icon column by hand.
 | Windows version | Python version | Commit | Spec | Command | Start/end time | Exit code | Warnings | Executable path | Executable size | SHA-256 | Version metadata | Icon result | Console-window result |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | Microsoft Windows 11 Home 10.0.26200 build 26200 | 3.12.10 (64bit) | ec7d3434a325 | LeagueMasteryTracker-onefile.spec | `python -m PyInstaller --clean --noconfirm LeagueMasteryTracker-onefile.spec` | 2026-09-29 18:30:03Z to 2026-09-29 18:30:24Z | 0 | 3 | dist\LeagueMasteryTracker.exe | 32908384 | 61FB43B2ACEB67FA8751A235E023A1D4B634CA345F457E0DAAA24D13C3B4FE08 | League Mastery Tracker 2.0.0 / file 2.0.0 | Application icon shown in File Explorer | Windows GUI (no console window) |
+| Microsoft Windows 11 Home 10.0.26200 build 26200 | 3.12.10 (64bit) | 8d5c426111a4 | LeagueMasteryTracker-onefile.spec | `python -m PyInstaller --clean --noconfirm LeagueMasteryTracker-onefile.spec` | 2026-09-29 19:40:21Z to 2026-09-29 19:40:41Z | 0 | 3 | dist\LeagueMasteryTracker.exe | 32908711 | 6C646C61168502562D27F5C62B50251BA597F91580BBCF69F498526D9B1BC09A | League Mastery Tracker 2.0.0 / file 2.0.0 | Not rechecked for this build | Windows GUI (no console window) |
 
 The script computes the SHA-256 itself. To recheck a copied executable, use:
 
@@ -152,6 +153,13 @@ matched the manifest and the bundled dataset was rejected. Fixed by
 `.gitattributes` marking `application/bundled_reference_data/**` as `-text`;
 repeat this section with a rebuilt executable.
 
+Result (2026-09-29, build `6C646C61…9B1BC09A` from commit `8d5c426111a4`,
+after re-checking out the bundled JSON files with SHA-256 `52E3A2AB…` for
+`champions.json`, fresh data directory `C:\Step10-Acceptance\fresh`):
+passed. The home page reported "Bundled dataset", the database held 173
+champions, all with names and images, and the application showed 173
+champions without any Data Dragon update.
+
 ## Visual and responsive acceptance
 
 Review every route/page at 1920x1080, 1366x768, 1280x720, and a narrow
@@ -160,12 +168,20 @@ navigation, headers, cards, forms, tables, buttons, long names, large Mastery
 values, Champion images, placeholders, focus rings, clipping, overlap, and
 horizontal page scrolling.
 
+Result (2026-09-29, build `6C646C61…9B1BC09A`): passed. All pages were
+reviewed at the listed sizes, a narrow window, and 100%, 125%, and 150%
+scaling with no clipping, overlap, or horizontal page scrolling reported.
+
 ## Accessibility smoke checks
 
 Check keyboard-only navigation, visible focus, logical tab order, landmarks
 and headings, status and error announcements, form labels, Champion image and
 placeholder names, and confirmation clarity. An optional screen-reader smoke
 test should record the tool used and its findings.
+
+Result (2026-09-29, build `6C646C61…9B1BC09A`): passed for keyboard-only
+navigation, visible focus, tab order, form error messages, and destructive
+confirmations. No screen-reader test was run.
 
 ## Functional acceptance
 
@@ -186,11 +202,28 @@ reference data are deliberate network actions. Perform those steps only with
 explicitly supplied test credentials and network availability; do not request
 or record real credentials in this checklist.
 
+Result (2026-09-29): passed with build `61FB43B2…C3B4FE08` (commit
+`ec7d3434a325`): Riot API key saved, Person and Riot account added, Mastery
+synchronized with names and images, Database backup created, JSON export
+and import, Database restore, manual reference-data update, and restart with
+persisted data. Unknown champion and Missing metadata handling was exercised
+by League Classic IDs 60029 and 60099, which Riot returns as 60000 plus the
+regular champion ID; they were stored as Unknown champions and listed on the
+Missing metadata page. After Classic Mastery was excluded from scope, one
+synchronization with build `6C646C61…9B1BC09A` (commit `8d5c426111a4`)
+removed both, leaving no Missing metadata entries.
+
 ## Lifecycle acceptance
 
 Verify single-instance behavior, tab lifecycle handling, Controlled shutdown,
 restart after restore, and absence of orphaned processes. Confirm that startup
 and navigation make no unexpected automatic network call.
+
+Result (2026-09-29, build `6C646C61…9B1BC09A`): passed. A second launch reused
+the running instance, the tray Open action restored a closed browser tab,
+restart after restore kept the data, and no `LeagueMasteryTracker.exe`
+process remained after Shut down. The offline first startup also confirmed
+that startup and navigation work without network access.
 
 ## Failure ledger
 
@@ -199,7 +232,8 @@ acceptance.
 
 | Check | Expected | Actual | Pass/fail | Evidence | Issue/follow-up |
 | --- | --- | --- | --- | --- | --- |
-| | | | | | |
+| Offline first startup: bundled reference data | "Bundled dataset" active with 173 named champions | "Database-only fallback", 0 champions | Fail, then pass on rebuild | Build `61FB43B2…`; fresh data directory query `(0, 0, 0)`, then `(173, 173, 173)` with build `6C646C61…` | CRLF checkout broke the `champions.json` checksum; fixed by `.gitattributes` (`-text`) and a checked-out dataset test |
+| Synchronization: League Classic IDs 60029 and 60099 | Only regular Champion Mastery shown | Two Unknown champions on the Missing metadata page | Out of scope, then pass on rebuild | Riot returned League Classic Twitch and Lux as 60000 plus the regular ID | Synchronization skips IDs 60001-60999 and removes unused Classic champions; a Classic view is a later candidate |
 
 ## Completion and final gate
 
@@ -213,5 +247,16 @@ After successful Windows acceptance:
 5. Commit the final handoff evidence.
 6. Push only with explicit authorization in Step 10.19.
 
-Prior audits identified no Step 11 candidates that require documentation.
-Step 10 remains incomplete until the Windows build and acceptance succeed.
+Windows build (Step 10.16) and acceptance (Step 10.17) passed on 2026-09-29
+with build `6C646C61…9B1BC09A` from commit `8d5c426111a4`.
+
+Step 11 candidates identified during acceptance:
+
+* A separate League Classic view for Champion Mastery IDs 60001-60999, which
+  synchronization currently skips.
+* Review the three PyInstaller warnings recorded in each build's
+  `pyinstaller-warnings.txt`; they did not affect acceptance.
+* Tray tests that load the real pystray backend still fail on Linux without
+  a display unless `PYSTRAY_BACKEND=dummy` is set, as in CI.
+* Remove the retired `linux-compatibility` push trigger from
+  `.github/workflows/linux-ci.yml` and its configuration test.

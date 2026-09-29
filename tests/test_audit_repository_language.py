@@ -688,14 +688,31 @@ class RepositoryLanguageAuditArtifactTests(
             content,
         )
         self.assertNotIn("This is the verified Step 10.5 integration checkpoint", content)
-        self.assertIn(
-            "No PyInstaller build result or Windows acceptance result is recorded here.",
+        windows_build = self._section(
             content,
+            "Step 10.16 native Windows build",
+            "Step 10.17 native Windows acceptance",
         )
-        self.assertIn(
-            "The new console-free Windows build remains Step 10.16.",
+        windows_acceptance = self._section(
             content,
+            "Step 10.17 native Windows acceptance",
         )
+
+        for record in (
+            "Exit code: 0",
+            "Subsystem: Windows GUI (no console window)",
+            "SHA-256: 6C646C61168502562D27F5C62B50251BA597F91580BBCF69F498526D9B1BC09A",
+        ):
+            self.assertIn(record, windows_build)
+
+        for check in (
+            "Offline first startup",
+            "Visual and responsive acceptance",
+            "Accessibility smoke checks",
+            "Functional acceptance",
+            "Lifecycle acceptance",
+        ):
+            self.assertIn(f"{check}: passed", windows_acceptance)
 
 
 if __name__ == "__main__":
