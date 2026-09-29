@@ -58,6 +58,7 @@ class GitHubActionsLinuxCiConfigurationTests(
                 "ubuntu-tests",
                 "windows-regression",
                 "linux-onefile",
+                "windows-onefile",
             },
         )
         self.assertIn("runs-on: ubuntu-22.04", self._job("ubuntu-tests"))
@@ -66,6 +67,10 @@ class GitHubActionsLinuxCiConfigurationTests(
             self._job("windows-regression"),
         )
         self.assertIn("runs-on: ubuntu-22.04", self._job("linux-onefile"))
+        self.assertIn(
+            "runs-on: windows-2022",
+            self._job("windows-onefile"),
+        )
 
     def test_all_jobs_use_python_312_and_required_environment(self):
         self.assertIn(
@@ -209,6 +214,40 @@ class GitHubActionsLinuxCiConfigurationTests(
             r"\s+dist/LeagueMasteryTracker\.sha256",
         )
         self.assertIn("if-no-files-found: error", linux_job)
+
+    def test_windows_build_uses_recording_script_after_regressions(self):
+        windows_job = self._job("windows-onefile")
+        self.assertRegex(
+            windows_job,
+            r"needs:\n\s+- ubuntu-tests\n\s+- windows-regression",
+        )
+        self.assertIn("-r requirements-build.txt", windows_job)
+        build_step = self._step_named(
+            windows_job,
+            "Build Windows onefile executable and record evidence",
+        )
+        self.assertIn(
+            "powershell -NoProfile -ExecutionPolicy Bypass -File "
+            "packaging\\windows\\record_windows_build.ps1",
+            build_step,
+        )
+        self.assertNotIn("-AllowDirtyTree", build_step)
+        self.assertNotIn("-RemovePriorOutput", build_step)
+        self.assertEqual(windows_job.count("python -m PyInstaller"), 0)
+        self.assertIn("actions/upload-artifact@v4", windows_job)
+        self.assertIn("name: LeagueMasteryTracker-windows-x64", windows_job)
+        self.assertRegex(
+            windows_job,
+            r"path: \|\n\s+dist/LeagueMasteryTracker\.exe\n"
+            r"\s+build/windows-build-evidence/",
+        )
+        self.assertIn("if-no-files-found: error", windows_job)
+        self.assertLess(
+            windows_job.index(
+                "- name: Build Windows onefile executable and record evidence"
+            ),
+            windows_job.index("- name: Upload Windows onefile artifact"),
+        )
 
     def test_workflow_has_no_remote_or_unsafe_operations(self):
         for prohibited_text in (
