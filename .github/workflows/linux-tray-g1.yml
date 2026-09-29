@@ -2,7 +2,7 @@ name: Linux tray G1 feasibility (manual)
 
 # G1 only: no frozen packaging or native tray acceptance.
 # GitHub requires this workflow on the default branch before manual dispatch;
-# select linux-compatibility when dispatching. Never substitute ubuntu-latest.
+# select main when dispatching. Never substitute ubuntu-latest.
 on:
   workflow_dispatch:
 
@@ -27,7 +27,7 @@ jobs:
       - name: Guard manual branch and hosted execution
         run: |
           test "$GITHUB_EVENT_NAME" = workflow_dispatch
-          test "$GITHUB_REF" = refs/heads/linux-compatibility
+          test "$GITHUB_REF" = refs/heads/main
           test "$RUNNER_ENVIRONMENT" = github-hosted
 
       - name: Check out the dispatched source commit
