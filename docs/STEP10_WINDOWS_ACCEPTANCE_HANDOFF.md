@@ -102,7 +102,7 @@ Fill in the icon column by hand.
 
 | Windows version | Python version | Commit | Spec | Command | Start/end time | Exit code | Warnings | Executable path | Executable size | SHA-256 | Version metadata | Icon result | Console-window result |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| | | | | | | | | | | | | | |
+| Microsoft Windows 11 Home 10.0.26200 build 26200 | 3.12.10 (64bit) | ec7d3434a325 | LeagueMasteryTracker-onefile.spec | `python -m PyInstaller --clean --noconfirm LeagueMasteryTracker-onefile.spec` | 2026-09-29 18:30:03Z to 2026-09-29 18:30:24Z | 0 | 3 | dist\LeagueMasteryTracker.exe | 32908384 | 61FB43B2ACEB67FA8751A235E023A1D4B634CA345F457E0DAAA24D13C3B4FE08 | League Mastery Tracker 2.0.0 / file 2.0.0 | Application icon shown in File Explorer | Windows GUI (no console window) |
 
 The script computes the SHA-256 itself. To recheck a copied executable, use:
 
@@ -114,10 +114,14 @@ Get-FileHash .\dist\LeagueMasteryTracker.exe -Algorithm SHA256
 
 Copy the executable outside the source and project directories. Use a fresh,
 isolated Application data directory; do not reuse normal user data. Set the
-supported override before launch, for example:
+supported override before launch. A variable set with `$env:` applies only to
+programs started from that terminal, so for launches from File Explorer set it
+for the Windows user and remove it after acceptance:
 
 ```powershell
-$env:LEAGUE_MASTERY_TRACKER_DATA_DIR = "C:\Step10-Isolated-Data"
+[Environment]::SetEnvironmentVariable("LEAGUE_MASTERY_TRACKER_DATA_DIR", "C:\Step10-Acceptance\data", "User")
+# After acceptance:
+[Environment]::SetEnvironmentVariable("LEAGUE_MASTERY_TRACKER_DATA_DIR", $null, "User")
 ```
 
 The default Windows data location is
@@ -136,6 +140,12 @@ record each result:
 * Bundled reference data is active, with Champion names and local icons.
 * No Data Dragon update is required for first startup.
 * No project files are required by the copied executable.
+
+Result (2026-09-29, build `61FB43B2…C3B4FE08` from commit `ec7d3434a325`,
+copied to `C:\Step10-Acceptance\app`, data in `C:\Step10-Acceptance\data`,
+network disconnected): all items passed. The tray icon offered Open and Shut
+down, the isolated data directory was populated, and no
+`LeagueMasteryTracker.exe` process remained after Shut down.
 
 ## Visual and responsive acceptance
 
