@@ -143,9 +143,14 @@ record each result:
 
 Result (2026-09-29, build `61FB43B2…C3B4FE08` from commit `ec7d3434a325`,
 copied to `C:\Step10-Acceptance\app`, data in `C:\Step10-Acceptance\data`,
-network disconnected): all items passed. The tray icon offered Open and Shut
-down, the isolated data directory was populated, and no
-`LeagueMasteryTracker.exe` process remained after Shut down.
+network disconnected): failed on bundled reference data. The console, browser,
+2.0 identity, tray (Open and Shut down), isolated data directory, and clean
+shutdown items passed. A later fresh-data-directory start showed
+"Database-only fallback" with 0 champions in the database: Git for Windows had
+checked out `champions.json` with CRLF line endings, so its SHA-256 no longer
+matched the manifest and the bundled dataset was rejected. Fixed by
+`.gitattributes` marking `application/bundled_reference_data/**` as `-text`;
+repeat this section with a rebuilt executable.
 
 ## Visual and responsive acceptance
 
