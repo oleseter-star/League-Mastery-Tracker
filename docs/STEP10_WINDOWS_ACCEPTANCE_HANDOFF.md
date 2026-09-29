@@ -2,10 +2,10 @@
 
 This checklist completes the native Windows work that remains after the
 source implementation through Step 10.15. Step 10.14 language verification
-and Step 10.15 regression verification are complete. Steps 10.16 through
-10.19 remain pending; the Step 10.16 build now has a recording script and a
-CI build job. No Windows build or Windows acceptance result is claimed by
-this document.
+and Step 10.15 regression verification are complete. The native Windows
+build (Step 10.16) and acceptance (Step 10.17) passed on 2026-09-29; the
+results are recorded below and summarized in `Step10-test-results.txt`. The
+remaining steps are the completion and final gate at the end.
 
 ## Evidence already verified
 
@@ -168,12 +168,20 @@ navigation, headers, cards, forms, tables, buttons, long names, large Mastery
 values, Champion images, placeholders, focus rings, clipping, overlap, and
 horizontal page scrolling.
 
+Result (2026-09-29, build `6C646C61…9B1BC09A`): passed. All pages were
+reviewed at the listed sizes, a narrow window, and 100%, 125%, and 150%
+scaling with no clipping, overlap, or horizontal page scrolling reported.
+
 ## Accessibility smoke checks
 
 Check keyboard-only navigation, visible focus, logical tab order, landmarks
 and headings, status and error announcements, form labels, Champion image and
 placeholder names, and confirmation clarity. An optional screen-reader smoke
 test should record the tool used and its findings.
+
+Result (2026-09-29, build `6C646C61…9B1BC09A`): passed for keyboard-only
+navigation, visible focus, tab order, form error messages, and destructive
+confirmations. No screen-reader test was run.
 
 ## Functional acceptance
 
@@ -211,6 +219,12 @@ Verify single-instance behavior, tab lifecycle handling, Controlled shutdown,
 restart after restore, and absence of orphaned processes. Confirm that startup
 and navigation make no unexpected automatic network call.
 
+Result (2026-09-29, build `6C646C61…9B1BC09A`): passed. A second launch reused
+the running instance, the tray Open action restored a closed browser tab,
+restart after restore kept the data, and no `LeagueMasteryTracker.exe`
+process remained after Shut down. The offline first startup also confirmed
+that startup and navigation work without network access.
+
 ## Failure ledger
 
 Record failures without silently retrying or editing production during
@@ -233,5 +247,16 @@ After successful Windows acceptance:
 5. Commit the final handoff evidence.
 6. Push only with explicit authorization in Step 10.19.
 
-Prior audits identified no Step 11 candidates that require documentation.
-Step 10 remains incomplete until the Windows build and acceptance succeed.
+Windows build (Step 10.16) and acceptance (Step 10.17) passed on 2026-09-29
+with build `6C646C61…9B1BC09A` from commit `8d5c426111a4`.
+
+Step 11 candidates identified during acceptance:
+
+* A separate League Classic view for Champion Mastery IDs 60001-60999, which
+  synchronization currently skips.
+* Review the three PyInstaller warnings recorded in each build's
+  `pyinstaller-warnings.txt`; they did not affect acceptance.
+* Tray tests that load the real pystray backend still fail on Linux without
+  a display unless `PYSTRAY_BACKEND=dummy` is set, as in CI.
+* Remove the retired `linux-compatibility` push trigger from
+  `.github/workflows/linux-ci.yml` and its configuration test.
