@@ -3,8 +3,9 @@
 This checklist completes the native Windows work that remains after the
 source implementation through Step 10.15. Step 10.14 language verification
 and Step 10.15 regression verification are complete. Steps 10.16 through
-10.19 remain pending. No Windows build or Windows acceptance result is
-claimed by this document.
+10.19 remain pending; the Step 10.16 build now has a recording script and a
+CI build job. No Windows build or Windows acceptance result is claimed by
+this document.
 
 ## Evidence already verified
 
@@ -25,17 +26,20 @@ and `Step10-test-results.txt` for the recorded evidence.
 
 ## Source-transfer gate
 
-Recorded `origin/main` may not include local Step 10 commits. Before any
-Windows work, record and verify the commit containing this checklist and all
-of its ancestors, then require a clean Windows working tree.
+All Step 10 work, including the Linux compatibility branch, is merged into
+`main` on GitHub. Transfer the source by cloning the repository on the Windows
+machine and checking out the exact commit to be accepted:
 
-Choose and record one explicit transfer method:
+```powershell
+git clone https://github.com/oleseter-star/League-Mastery-Tracker.git
+cd League-Mastery-Tracker
+git checkout <commit>
+git status
+```
 
-* Copy the complete Git repository.
-* Use a local Git bundle.
-* Use a separately authorized remote push.
-
-Do not assume that `origin/main` is current, and do not push automatically.
+Record the commit hash before any Windows work and require a clean working
+tree. The build script below refuses to run from a dirty tree and records the
+commit it built.
 
 ## Native Windows prerequisites
 
@@ -65,22 +69,42 @@ The documented optional comparison target is:
 python -m PyInstaller --clean --noconfirm LeagueMasteryTracker.spec
 ```
 
-Before each build, clear or record the prior build output according to the
-operator's approved local procedure. Do not record success until the command
-has completed with exit code 0. Verify the expected result at
-`dist\LeagueMasteryTracker.exe`: the console-free configuration, canonical
-name and version metadata, application icon, bundled templates and static
-assets, bundled reference data, and local Champion images.
+Prefer running the build through the recording script, which performs the
+primary onefile build and collects the build evidence:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File packaging\windows\record_windows_build.ps1
+```
+
+Pass `-Spec LeagueMasteryTracker.spec` for the comparison target. The script
+refuses to overwrite an existing `dist\LeagueMasteryTracker.exe`; record or
+move it first, or pass `-RemovePriorOutput` to record its hash and remove it.
+
+The script exits nonzero unless PyInstaller exits with code 0 and the
+executable at `dist\LeagueMasteryTracker.exe` is an x64 Windows GUI
+(console-free) program whose version metadata matches
+`application/config/__init__.py`. It does not check the application icon,
+bundled templates and static assets, bundled reference data, or local
+Champion images; those are confirmed by the offline first-startup checks
+below and by inspecting the icon in File Explorer.
+
+The `windows-onefile` job in `.github/workflows/linux-ci.yml` runs the same
+script on a GitHub-hosted Windows Server 2022 runner and uploads the
+executable with its evidence. Treat that artifact as an early build check
+only; it does not replace the native build and acceptance recorded here.
 
 ## Build evidence
 
-Record one row for every build attempt.
+Record one row for every build attempt. The recording script prints a
+ready-made row and writes it, with `evidence.json`, the PyInstaller logs, and
+the extracted warning lines, to `build\windows-build-evidence\<UTC time>\`.
+Fill in the icon column by hand.
 
 | Windows version | Python version | Commit | Spec | Command | Start/end time | Exit code | Warnings | Executable path | Executable size | SHA-256 | Version metadata | Icon result | Console-window result |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | | | | | | | | | | | | | | |
 
-Use a native PowerShell hash command after the executable exists:
+The script computes the SHA-256 itself. To recheck a copied executable, use:
 
 ```powershell
 Get-FileHash .\dist\LeagueMasteryTracker.exe -Algorithm SHA256
