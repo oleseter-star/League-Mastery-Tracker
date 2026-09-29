@@ -1,4 +1,5 @@
 from collections.abc import MutableMapping
+import sys
 
 from application.app import create_app
 from application.services.application_browser_service import (
@@ -18,6 +19,7 @@ from application.services.application_tab_lifecycle_service import (
 )
 from application.services.application_tray_service import (
     ApplicationTrayService,
+    ApplicationTrayUnavailableError,
 )
 
 
@@ -169,7 +171,11 @@ class ApplicationLauncherService:
                 flask_app
             )
 
-            self.tray_service.start()
+            try:
+                self.tray_service.start()
+            except ApplicationTrayUnavailableError:
+                if not sys.platform.startswith("linux"):
+                    raise
 
             self.tab_lifecycle_service.start()
 

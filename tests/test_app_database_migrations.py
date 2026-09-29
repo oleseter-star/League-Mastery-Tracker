@@ -1,5 +1,6 @@
 import importlib
 import sqlite3
+import sys
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -8,6 +9,9 @@ from unittest.mock import patch
 from application.database.database import db
 from application.services.database_migration_service import (
     DatabaseVersionError,
+)
+from application.services.application_data_service import (
+    ApplicationDataService,
 )
 
 
@@ -476,6 +480,157 @@ class AppDatabaseMigrationTests(unittest.TestCase):
                 "Backup validation failed",
                 "synthetic-validation-directory-marker",
             ),
+        )
+
+    def test_frozen_legacy_data_is_excluded_during_startup(self):
+        meipass_directory = (
+            self.root_directory
+            / "pyinstaller-extraction"
+        )
+
+        legacy_data_directory = (
+            meipass_directory
+            / "data"
+        )
+
+        legacy_marker_file = (
+            legacy_data_directory
+            / "frozen-startup-marker.bin"
+        )
+
+        data_directory = (
+            self.root_directory
+            / "persistent-data"
+            / "LeagueMasteryTracker"
+        )
+
+        database_file = (
+            data_directory
+            / "database"
+            / "test.db"
+        )
+
+        configuration_directory = (
+            data_directory
+            / "configuration"
+        )
+
+        backup_directory = (
+            data_directory
+            / "backups"
+        )
+
+        reference_directory = (
+            data_directory
+            / "reference"
+        )
+
+        legacy_marker_file.parent.mkdir(
+            parents=True,
+            exist_ok=True,
+        )
+
+        legacy_marker_file.write_bytes(
+            b"frozen-startup-data"
+        )
+
+        class FrozenMigrationTestConfig:
+            TESTING = True
+            DEBUG = False
+            SQLALCHEMY_DATABASE_URI = (
+                "sqlite:///"
+                + database_file.as_posix()
+            )
+            SQLALCHEMY_TRACK_MODIFICATIONS = False
+            DATABASE_FILE = str(database_file)
+            CONFIG_DIR = str(configuration_directory)
+            BACKUP_DIR = str(backup_directory)
+            REFERENCE_DIR = str(reference_directory)
+            RIOT_API_KEY = None
+            PROJECT_ROOT = meipass_directory
+            LEGACY_DATA_DIR = legacy_data_directory
+            DATA_DIR = data_directory
+            STARTUP_APPLICATION_DATA_MIGRATION_RESULT = None
+
+            @classmethod
+            def ensure_directories(cls):
+                cls.STARTUP_APPLICATION_DATA_MIGRATION_RESULT = (
+                    ApplicationDataService
+                    .migrate_legacy_data(
+                        legacy_data_directory=(
+                            cls.LEGACY_DATA_DIR
+                        ),
+                        target_data_directory=(
+                            cls.DATA_DIR
+                        ),
+                    )
+                )
+
+                for directory in (
+                    cls.DATA_DIR,
+                    database_file.parent,
+                    configuration_directory,
+                    backup_directory,
+                    reference_directory,
+                ):
+                    directory.mkdir(
+                        parents=True,
+                        exist_ok=True,
+                    )
+
+        config_name = "frozen-migration-test"
+
+        with patch.dict(
+            app_module.configurations,
+            {
+                config_name: FrozenMigrationTestConfig,
+            },
+        ), patch.object(
+            sys,
+            "frozen",
+            True,
+            create=True,
+        ), patch.object(
+            sys,
+            "_MEIPASS",
+            str(meipass_directory),
+            create=True,
+        ), patch.object(
+            ApplicationDataService,
+            "migrate_legacy_data",
+            wraps=ApplicationDataService.migrate_legacy_data,
+        ) as migrate_legacy_data:
+            app = app_module.create_app(
+                config_name
+            )
+
+        self.created_apps.append(app)
+
+        migrate_legacy_data.assert_called_once_with(
+            legacy_data_directory=legacy_data_directory,
+            target_data_directory=data_directory,
+        )
+
+        self.assertFalse(
+            FrozenMigrationTestConfig
+            .STARTUP_APPLICATION_DATA_MIGRATION_RESULT[
+                "migrated"
+            ]
+        )
+
+        self.assertTrue(
+            legacy_marker_file.exists()
+        )
+
+        self.assertFalse(
+            (
+                data_directory
+                / legacy_marker_file.name
+            ).exists()
+        )
+
+        self.assertTrue(
+            database_file.exists()
         )
 
 

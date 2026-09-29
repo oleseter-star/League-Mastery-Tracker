@@ -290,44 +290,21 @@ class CurrentRepositoryLanguageAuditTests(
         )
         self.assertEqual(
             result["counts"]["tracked_files"],
-            352,
+            len(tracked_paths),
         )
-        self.assertEqual(len(tracked_paths), 352)
         self.assertEqual(result["tracked_paths"], tracked_paths)
-        self.assertEqual(len(outcomes), 352)
-        self.assertEqual(
-            result["counts"]["audited_text"],
-            178,
-        )
-        self.assertEqual(
-            len(outcome_paths_by_category["audited_text"]),
-            178,
-        )
-        self.assertEqual(
-            result["counts"]["intentional_binary_exclusion"],
-            174,
-        )
-        self.assertEqual(
-            len(
-                outcome_paths_by_category[
-                    "intentional_binary_exclusion"
-                ]
-            ),
-            174,
-        )
+        self.assertEqual(len(outcomes), len(tracked_paths))
+        for category, paths in outcome_paths_by_category.items():
+            self.assertEqual(
+                result["counts"][category],
+                len(paths),
+                category,
+            )
         self.assertEqual(
             result["counts"]["controlled_non_language_exclusion"],
             0,
         )
-        self.assertEqual(
-            len(
-                outcome_paths_by_category[
-                    "controlled_non_language_exclusion"
-                ]
-            ),
-            0,
-        )
-        self.assertEqual(len(classified_paths), 352)
+        self.assertEqual(len(classified_paths), len(tracked_paths))
         self.assertEqual(len(tracked_paths), len(set(tracked_paths)))
         self.assertEqual(len(outcome_paths), len(set(outcome_paths)))
         self.assertEqual(outcome_paths, tracked_paths)

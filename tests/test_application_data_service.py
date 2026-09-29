@@ -1,5 +1,6 @@
 import os
 import shutil
+import sys
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -78,6 +79,38 @@ class ApplicationDataServiceTests(unittest.TestCase):
             override_directory.resolve(),
         )
 
+    def test_environment_override_wins_over_linux_xdg_data_home(self):
+        override_directory = (
+            self.root_directory
+            / "override-data"
+        )
+
+        result = (
+            ApplicationDataService
+            .get_data_directory(
+                project_root=self.project_root,
+                environment={
+                    "LEAGUE_MASTERY_TRACKER_DATA_DIR": str(
+                        override_directory
+                    ),
+                    "XDG_DATA_HOME": str(
+                        self.root_directory
+                        / "xdg-data"
+                    ),
+                },
+                os_name="linux",
+                home_directory=(
+                    self.root_directory
+                    / "home"
+                ),
+            )
+        )
+
+        self.assertEqual(
+            result,
+            override_directory.resolve(),
+        )
+
     def test_windows_uses_local_appdata(self):
         result = (
             ApplicationDataService
@@ -127,13 +160,46 @@ class ApplicationDataServiceTests(unittest.TestCase):
             ).resolve(),
         )
 
-    def test_non_windows_development_uses_project_data(self):
+    def test_non_linux_development_uses_project_data(self):
+        with patch.object(
+            sys,
+            "platform",
+            "darwin",
+        ):
+            result = (
+                ApplicationDataService
+                .get_data_directory(
+                    project_root=self.project_root,
+                    environment={},
+                    os_name="posix",
+                    home_directory=(
+                        self.root_directory
+                        / "home"
+                    ),
+                )
+            )
+
+        self.assertEqual(
+            result,
+            self.legacy_data_directory.resolve(),
+        )
+
+    def test_linux_uses_absolute_xdg_data_home(self):
+        xdg_data_directory = (
+            self.root_directory
+            / "xdg-data"
+        )
+
         result = (
             ApplicationDataService
             .get_data_directory(
                 project_root=self.project_root,
-                environment={},
-                os_name="posix",
+                environment={
+                    "XDG_DATA_HOME": str(
+                        xdg_data_directory
+                    ),
+                },
+                os_name="linux",
                 home_directory=(
                     self.root_directory
                     / "home"
@@ -143,7 +209,210 @@ class ApplicationDataServiceTests(unittest.TestCase):
 
         self.assertEqual(
             result,
-            self.legacy_data_directory.resolve(),
+            (
+                xdg_data_directory
+                / ApplicationDataService
+                .APPLICATION_DIRECTORY_NAME
+            ).resolve(),
+        )
+
+        self.assertFalse(
+            xdg_data_directory.exists()
+        )
+
+    def test_linux_absolute_xdg_data_home_is_not_normalized(self):
+        xdg_data_directory = (
+            self.root_directory
+            / "xdg-data"
+            / "lexical-component"
+            / ".."
+            / "data-home"
+        )
+
+        result = (
+            ApplicationDataService
+            .get_data_directory(
+                project_root=self.project_root,
+                environment={
+                    "XDG_DATA_HOME": str(
+                        xdg_data_directory
+                    ),
+                },
+                os_name="linux",
+                home_directory=(
+                    self.root_directory
+                    / "home"
+                ),
+            )
+        )
+
+        self.assertEqual(
+            result,
+            xdg_data_directory
+            / ApplicationDataService
+            .APPLICATION_DIRECTORY_NAME,
+        )
+
+        self.assertFalse(
+            xdg_data_directory.exists()
+        )
+
+    def test_linux_missing_xdg_data_home_uses_home_default(self):
+        home_directory = (
+            self.root_directory
+            / "home"
+        )
+
+        result = (
+            ApplicationDataService
+            .get_data_directory(
+                project_root=self.project_root,
+                environment={},
+                os_name="linux",
+                home_directory=home_directory,
+            )
+        )
+
+        self.assertEqual(
+            result,
+            (
+                home_directory
+                / ".local"
+                / "share"
+                / ApplicationDataService
+                .APPLICATION_DIRECTORY_NAME
+            ).resolve(),
+        )
+
+        self.assertFalse(
+            home_directory.exists()
+        )
+
+    def test_linux_empty_xdg_data_home_uses_home_default(self):
+        home_directory = (
+            self.root_directory
+            / "home"
+        )
+
+        result = (
+            ApplicationDataService
+            .get_data_directory(
+                project_root=self.project_root,
+                environment={
+                    "XDG_DATA_HOME": "",
+                },
+                os_name="linux",
+                home_directory=home_directory,
+            )
+        )
+
+        self.assertEqual(
+            result,
+            (
+                home_directory
+                / ".local"
+                / "share"
+                / ApplicationDataService
+                .APPLICATION_DIRECTORY_NAME
+            ).resolve(),
+        )
+
+        self.assertFalse(
+            home_directory.exists()
+        )
+
+    def test_linux_relative_xdg_data_home_uses_home_default(self):
+        home_directory = (
+            self.root_directory
+            / "home"
+        )
+
+        result = (
+            ApplicationDataService
+            .get_data_directory(
+                project_root=self.project_root,
+                environment={
+                    "XDG_DATA_HOME": "relative-xdg-data",
+                },
+                os_name="linux",
+                home_directory=home_directory,
+            )
+        )
+
+        self.assertEqual(
+            result,
+            (
+                home_directory
+                / ".local"
+                / "share"
+                / ApplicationDataService
+                .APPLICATION_DIRECTORY_NAME
+            ).resolve(),
+        )
+
+        self.assertFalse(
+            home_directory.exists()
+        )
+
+    def test_frozen_linux_uses_xdg_data_outside_meipass(self):
+        meipass_directory = (
+            self.root_directory
+            / "pyinstaller-extraction"
+        )
+
+        xdg_data_directory = (
+            self.root_directory
+            / "xdg-data"
+        )
+
+        with patch.object(
+            sys,
+            "_MEIPASS",
+            str(meipass_directory),
+            create=True,
+        ):
+            result = (
+                ApplicationDataService
+                .get_data_directory(
+                    project_root=meipass_directory,
+                    environment={
+                        "XDG_DATA_HOME": str(
+                            xdg_data_directory
+                        ),
+                    },
+                    os_name="linux",
+                    home_directory=(
+                        self.root_directory
+                        / "home"
+                    ),
+                )
+            )
+
+        expected_directory = (
+            xdg_data_directory
+            / ApplicationDataService
+            .APPLICATION_DIRECTORY_NAME
+        ).resolve()
+
+        self.assertEqual(
+            result,
+            expected_directory,
+        )
+
+        self.assertNotEqual(
+            result,
+            (
+                meipass_directory
+                / "data"
+            ).resolve(),
+        )
+
+        self.assertFalse(
+            meipass_directory.exists()
+        )
+
+        self.assertFalse(
+            xdg_data_directory.exists()
         )
 
     def test_missing_legacy_directory_is_skipped(self):
@@ -170,6 +439,316 @@ class ApplicationDataServiceTests(unittest.TestCase):
 
         self.assertFalse(
             self.target_data_directory.exists()
+        )
+
+    def test_frozen_legacy_data_is_not_copied(self):
+        meipass_directory = (
+            self.root_directory
+            / "pyinstaller-extraction"
+        )
+
+        legacy_data_directory = (
+            meipass_directory
+            / "data"
+        )
+
+        legacy_marker_file = (
+            legacy_data_directory
+            / "frozen-legacy-marker.bin"
+        )
+
+        target_data_directory = (
+            self.root_directory
+            / "persistent-data"
+            / ApplicationDataService
+            .APPLICATION_DIRECTORY_NAME
+        )
+
+        legacy_marker_file.parent.mkdir(
+            parents=True,
+            exist_ok=True,
+        )
+
+        legacy_marker_file.write_bytes(
+            b"frozen-legacy-data"
+        )
+
+        with patch.object(
+            sys,
+            "frozen",
+            True,
+            create=True,
+        ), patch.object(
+            sys,
+            "_MEIPASS",
+            str(meipass_directory),
+            create=True,
+        ), patch(
+            "application.services."
+            "application_data_service."
+            "shutil.copytree",
+            wraps=shutil.copytree,
+        ) as copytree:
+            result = (
+                ApplicationDataService
+                .migrate_legacy_data(
+                    legacy_data_directory=(
+                        legacy_data_directory
+                    ),
+                    target_data_directory=(
+                        target_data_directory
+                    ),
+                )
+            )
+
+        self.assertFalse(
+            result["migrated"]
+        )
+
+        self.assertEqual(
+            result["reason"],
+            "legacy_data_not_found",
+        )
+
+        copytree.assert_not_called()
+
+        self.assertTrue(
+            legacy_marker_file.exists()
+        )
+
+        self.assertFalse(
+            target_data_directory.exists()
+        )
+
+    def test_frozen_bundle_root_is_not_copied(self):
+        meipass_directory = (
+            self.root_directory
+            / "pyinstaller-extraction"
+        )
+
+        legacy_marker_file = (
+            meipass_directory
+            / "frozen-bundle-root-marker.bin"
+        )
+
+        target_data_directory = (
+            self.root_directory
+            / "persistent-data"
+            / ApplicationDataService
+            .APPLICATION_DIRECTORY_NAME
+        )
+
+        legacy_marker_file.parent.mkdir(
+            parents=True,
+            exist_ok=True,
+        )
+
+        legacy_marker_file.write_bytes(
+            b"frozen-bundle-root-data"
+        )
+
+        with patch.object(
+            sys,
+            "frozen",
+            True,
+            create=True,
+        ), patch.object(
+            sys,
+            "_MEIPASS",
+            str(meipass_directory),
+            create=True,
+        ), patch(
+            "application.services."
+            "application_data_service."
+            "shutil.copytree",
+            wraps=shutil.copytree,
+        ) as copytree:
+            result = (
+                ApplicationDataService
+                .migrate_legacy_data(
+                    legacy_data_directory=(
+                        meipass_directory
+                    ),
+                    target_data_directory=(
+                        target_data_directory
+                    ),
+                )
+            )
+
+        self.assertFalse(
+            result["migrated"]
+        )
+
+        self.assertEqual(
+            result["reason"],
+            "legacy_data_not_found",
+        )
+
+        copytree.assert_not_called()
+
+        self.assertTrue(
+            legacy_marker_file.exists()
+        )
+
+        self.assertFalse(
+            target_data_directory.exists()
+        )
+
+    def test_frozen_prefixed_sibling_legacy_data_is_copied(self):
+        meipass_directory = (
+            self.root_directory
+            / "_MEIPASS"
+        )
+
+        legacy_data_directory = (
+            self.root_directory
+            / "_MEIPASS-old"
+            / "data"
+        )
+
+        legacy_marker_file = (
+            legacy_data_directory
+            / "sibling-legacy-marker.bin"
+        )
+
+        target_data_directory = (
+            self.root_directory
+            / "persistent-data"
+            / ApplicationDataService
+            .APPLICATION_DIRECTORY_NAME
+        )
+
+        legacy_marker_file.parent.mkdir(
+            parents=True,
+            exist_ok=True,
+        )
+
+        legacy_marker_file.write_bytes(
+            b"prefixed-sibling-legacy-data"
+        )
+
+        self.assertFalse(
+            target_data_directory.exists()
+        )
+
+        with patch.object(
+            sys,
+            "frozen",
+            True,
+            create=True,
+        ), patch.object(
+            sys,
+            "_MEIPASS",
+            str(meipass_directory),
+            create=True,
+        ), patch(
+            "application.services."
+            "application_data_service."
+            "shutil.copytree",
+            wraps=shutil.copytree,
+        ) as copytree:
+            result = (
+                ApplicationDataService
+                .migrate_legacy_data(
+                    legacy_data_directory=(
+                        legacy_data_directory
+                    ),
+                    target_data_directory=(
+                        target_data_directory
+                    ),
+                )
+            )
+
+        self.assertTrue(
+            result["migrated"]
+        )
+
+        self.assertEqual(
+            result["reason"],
+            "legacy_data_copied",
+        )
+
+        copytree.assert_called_once()
+
+        self.assertEqual(
+            (
+                target_data_directory
+                / legacy_marker_file.name
+            ).read_bytes(),
+            b"prefixed-sibling-legacy-data",
+        )
+
+        self.assertTrue(
+            legacy_marker_file.exists()
+        )
+
+    def test_frozen_malformed_meipass_skips_legacy_data(self):
+        legacy_marker_file = (
+            self.legacy_data_directory
+            / "malformed-meipass-marker.bin"
+        )
+
+        target_data_directory = (
+            self.root_directory
+            / "persistent-data"
+            / ApplicationDataService
+            .APPLICATION_DIRECTORY_NAME
+        )
+
+        legacy_marker_file.parent.mkdir(
+            parents=True,
+            exist_ok=True,
+        )
+
+        legacy_marker_file.write_bytes(
+            b"malformed-meipass-legacy-data"
+        )
+
+        with patch.object(
+            sys,
+            "frozen",
+            True,
+            create=True,
+        ), patch.object(
+            sys,
+            "_MEIPASS",
+            12345,
+            create=True,
+        ), patch(
+            "application.services."
+            "application_data_service."
+            "shutil.copytree",
+            wraps=shutil.copytree,
+        ) as copytree:
+            result = (
+                ApplicationDataService
+                .migrate_legacy_data(
+                    legacy_data_directory=(
+                        self.legacy_data_directory
+                    ),
+                    target_data_directory=(
+                        target_data_directory
+                    ),
+                )
+            )
+
+        self.assertFalse(
+            result["migrated"]
+        )
+
+        self.assertEqual(
+            result["reason"],
+            "legacy_data_not_found",
+        )
+
+        copytree.assert_not_called()
+
+        self.assertTrue(
+            legacy_marker_file.exists()
+        )
+
+        self.assertFalse(
+            target_data_directory.exists()
         )
 
     def test_legacy_data_is_copied_to_fresh_target(self):

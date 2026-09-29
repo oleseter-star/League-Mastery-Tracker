@@ -1,5 +1,11 @@
+import builtins
+import importlib.util
+import io
+import os
+import sys
 import threading
 import unittest
+import application.services.application_tray_service as tray_module
 from unittest.mock import (
     ANY,
     Mock,
@@ -7,15 +13,18 @@ from unittest.mock import (
     patch,
 )
 
-from PIL import Image
+from PIL import Image, ImageDraw
 
 from application.services.application_tray_service import (
     ApplicationTrayService,
+    ApplicationTrayUnavailableError,
 )
 
 
 class EventBackedXorgIcon:
     __module__ = "pystray._xorg"
+    HAS_MENU = False
+    HAS_DEFAULT_ACTION = True
 
     def __init__(
         self,
@@ -56,6 +65,29 @@ class EventBackedXorgIcon:
             self.allow_run_to_finish.set()
 
 
+class DiagnosticGtkIcon:
+    __module__ = "pystray._gtk"
+    HAS_MENU = True
+    HAS_DEFAULT_ACTION = True
+
+    def __init__(self):
+        self.run = Mock()
+        self.run_detached = Mock()
+        self.stop = Mock()
+
+
+class UnrecognizedDiagnosticIcon(DiagnosticGtkIcon):
+    __module__ = "synthetic.unrecognized_backend"
+    HAS_MENU = "synthetic capability marker"
+    HAS_DEFAULT_ACTION = None
+
+
+class FailingDiagnosticStream:
+    def write(self, value):
+        del value
+        raise OSError("synthetic stderr failure")
+
+
 class ApplicationTrayServiceTests(
     unittest.TestCase
 ):
@@ -79,6 +111,616 @@ class ApplicationTrayServiceTests(
                 self.shutdown_callback
             ),
         )
+
+    def _start_with_icon(self, icon):
+        pystray_module = Mock()
+        pystray_module.Icon.return_value = icon
+        pystray_module.MenuItem.side_effect = (
+            object(),
+            object(),
+        )
+        pystray_module.Menu.return_value = object()
+        pystray_module.Menu.SEPARATOR = object()
+
+        with patch.object(
+            self.service,
+            "_load_tray_dependencies",
+            return_value=(pystray_module, Image, ImageDraw),
+        ):
+            return self.service.start()
+
+    def test_module_defers_tray_dependencies_until_tray_use(self):
+        self.assertNotIn("pystray", vars(tray_module))
+        self.assertNotIn("ImageDraw", vars(tray_module))
+
+    def test_missing_pystray_is_deferred_until_tray_use(self):
+        module_name = "isolated_application_tray_service"
+        module_path = tray_module.__file__
+        attempted_imports = []
+        original_import = builtins.__import__
+
+        def controlled_import(name, *args, **kwargs):
+            if name in {"pystray", "PIL"}:
+                attempted_imports.append(name)
+                if name == "pystray":
+                    raise ModuleNotFoundError("synthetic pystray missing")
+            return original_import(name, *args, **kwargs)
+
+        module_spec = importlib.util.spec_from_file_location(
+            module_name,
+            module_path,
+        )
+        isolated_module = importlib.util.module_from_spec(module_spec)
+
+        with patch.object(
+            builtins,
+            "__import__",
+            side_effect=controlled_import,
+        ), patch.dict(
+            os.environ,
+            {"PYSTRAY_BACKEND": "dummy"},
+            clear=True,
+        ), patch.object(sys, "platform", "linux"):
+            module_spec.loader.exec_module(isolated_module)
+            self.assertEqual(attempted_imports, [])
+
+            isolated_service = isolated_module.ApplicationTrayService(
+                application_url="http://127.0.0.1:5000/",
+                open_application_callback=Mock(),
+                shutdown_callback=Mock(),
+            )
+
+            with self.assertRaises(
+                isolated_module.ApplicationTrayUnavailableError
+            ):
+                isolated_service.start()
+
+        self.assertEqual(attempted_imports, ["PIL", "pystray"])
+
+    def test_headless_linux_skips_tray_dependencies(self):
+        raw_marker = "DISPLAY=/synthetic/headless Traceback marker"
+
+        with (
+            patch.object(sys, "platform", "linux"),
+            patch.dict(os.environ, {}, clear=True),
+            patch.object(self.service, "_load_tray_dependencies") as loader,
+            self.assertRaises(
+                ApplicationTrayUnavailableError
+            ) as context,
+        ):
+            self.service.start()
+
+        loader.assert_not_called()
+        self.assertNotIn(raw_marker, str(context.exception))
+        self.assertIsNone(self.service.icon)
+        self.assertFalse(self.service.is_running)
+        self.open_application_callback.assert_not_called()
+        self.shutdown_callback.assert_not_called()
+
+    def test_pure_wayland_linux_skips_tray_dependencies(self):
+        with (
+            patch.object(sys, "platform", "linux"),
+            patch.dict(
+                os.environ,
+                {"WAYLAND_DISPLAY": "wayland-synthetic"},
+                clear=True,
+            ),
+            patch.object(self.service, "_load_tray_dependencies") as loader,
+            self.assertRaises(ApplicationTrayUnavailableError),
+        ):
+            self.service.start()
+
+        loader.assert_not_called()
+        self.assertIsNone(self.service.icon)
+        self.assertFalse(self.service.is_running)
+
+    def test_linux_missing_pillow_is_controlled_unavailability(self):
+        original_import = builtins.__import__
+
+        def missing_pillow(name, *args, **kwargs):
+            if name == "PIL":
+                raise ModuleNotFoundError("synthetic Pillow missing")
+            return original_import(name, *args, **kwargs)
+
+        with (
+            patch.object(sys, "platform", "linux"),
+            patch.dict(
+                os.environ,
+                {"PYSTRAY_BACKEND": "dummy"},
+                clear=True,
+            ),
+            patch.object(
+                builtins,
+                "__import__",
+                side_effect=missing_pillow,
+            ),
+            self.assertRaises(
+                ApplicationTrayUnavailableError
+            ) as context,
+        ):
+            self.service.start()
+
+        self.assertNotIn("synthetic Pillow missing", str(context.exception))
+
+    def test_linux_x11_display_failure_is_controlled_unavailability(self):
+        fake_xlib_module = type(sys)("Xlib")
+        fake_xlib_error_module = type(sys)("Xlib.error")
+        display_connection_error = type(
+            "DisplayConnectionError",
+            (Exception,),
+            {},
+        )
+        fake_xlib_error_module.DisplayConnectionError = (
+            display_connection_error
+        )
+        fake_xlib_module.error = fake_xlib_error_module
+
+        original_import = builtins.__import__
+
+        def display_failure(name, *args, **kwargs):
+            if name == "pystray":
+                raise display_connection_error(
+                    ":synthetic",
+                    "synthetic display failure",
+                )
+            return original_import(name, *args, **kwargs)
+
+        with (
+            patch.object(sys, "platform", "linux"),
+            patch.dict(
+                os.environ,
+                {"DISPLAY": ":99"},
+                clear=True,
+            ),
+            patch.dict(
+                sys.modules,
+                {
+                    "Xlib": fake_xlib_module,
+                    "Xlib.error": fake_xlib_error_module,
+                },
+            ),
+            patch.object(
+                builtins,
+                "__import__",
+                side_effect=display_failure,
+            ),
+            self.assertRaises(
+                ApplicationTrayUnavailableError
+            ) as context,
+        ):
+            self.service.start()
+
+        self.assertNotIn(":synthetic", str(context.exception))
+
+    def test_linux_x11_display_name_failure_is_controlled_unavailability(
+        self,
+    ):
+        fake_xlib_module = type(sys)("Xlib")
+        fake_xlib_error_module = type(sys)("Xlib.error")
+        display_name_error = type(
+            "DisplayNameError",
+            (Exception,),
+            {},
+        )
+        fake_xlib_error_module.DisplayNameError = display_name_error
+        fake_xlib_module.error = fake_xlib_error_module
+
+        raw_marker = (
+            "SYNTHETIC_X11_DISPLAY_NAME "
+            "/synthetic/x11/backend "
+            "SyntheticBackendError "
+            "Traceback (most recent call last):"
+        )
+        original_import = builtins.__import__
+
+        def display_failure(name, *args, **kwargs):
+            if name == "pystray":
+                raise display_name_error(raw_marker)
+            return original_import(name, *args, **kwargs)
+
+        with (
+            patch.object(sys, "platform", "linux"),
+            patch.dict(
+                os.environ,
+                {"DISPLAY": ":99"},
+                clear=True,
+            ),
+            patch.dict(
+                sys.modules,
+                {
+                    "Xlib": fake_xlib_module,
+                    "Xlib.error": fake_xlib_error_module,
+                },
+            ),
+            patch.object(
+                builtins,
+                "__import__",
+                side_effect=display_failure,
+            ),
+            self.assertRaises(
+                ApplicationTrayUnavailableError
+            ) as context,
+        ):
+            self.service.start()
+
+        self.assertEqual(
+            str(context.exception),
+            "Notification-area support is unavailable.",
+        )
+        self.assertNotIn(raw_marker, str(context.exception))
+        for marker in (
+            "SYNTHETIC_X11_DISPLAY_NAME",
+            "/synthetic/x11/backend",
+            "SyntheticBackendError",
+            "Traceback (most recent call last):",
+        ):
+            self.assertNotIn(marker, str(context.exception))
+
+    def test_linux_display_attempts_existing_tray_path(self):
+        pystray_module = Mock()
+        pystray_module.MenuItem.side_effect = (object(), object())
+        pystray_module.Menu.return_value = object()
+        pystray_module.Menu.SEPARATOR = object()
+        pystray_module.Icon.return_value = Mock()
+
+        with (
+            patch.object(sys, "platform", "linux"),
+            patch.dict(
+                os.environ,
+                {"DISPLAY": ":99"},
+                clear=True,
+            ),
+            patch.object(
+                self.service,
+                "_load_tray_dependencies",
+                return_value=(pystray_module, Image, ImageDraw),
+            ) as loader,
+        ):
+            self.service.start()
+
+        loader.assert_called_once_with()
+
+    def test_linux_image_failure_is_controlled_unavailability(self):
+        raw_error = (
+            "DISPLAY=:99 /synthetic/x11/socket "
+            "org.example.WaylandBackend Traceback marker"
+        )
+        pystray_module = Mock()
+        diagnostic_output = io.StringIO()
+
+        with (
+            patch.object(sys, "platform", "linux"),
+            patch.dict(
+                os.environ,
+                {
+                    "DISPLAY": ":99",
+                    "LEAGUE_MASTERY_TRACKER_TRAY_DIAGNOSTICS": "1",
+                },
+                clear=True,
+            ),
+            patch.object(sys, "stderr", diagnostic_output),
+            patch.object(
+                self.service,
+                "_load_tray_dependencies",
+                return_value=(pystray_module, Image, ImageDraw),
+            ),
+            patch.object(
+                self.service,
+                "_create_icon_image",
+                side_effect=OSError(raw_error),
+            ),
+            self.assertRaises(
+                ApplicationTrayUnavailableError
+            ) as context,
+        ):
+            self.service.start()
+
+        self.assertEqual(
+            str(context.exception),
+            "Notification-area support is unavailable.",
+        )
+        self.assertNotIn(raw_error, str(context.exception))
+        self.assertIsNone(self.service.icon)
+        self.assertFalse(self.service.is_running)
+        self.assertEqual(
+            diagnostic_output.getvalue(),
+            "Linux tray diagnostic: phase=initialization "
+            "status=unavailable\n",
+        )
+        self.assertLessEqual(
+            len(diagnostic_output.getvalue()),
+            self.service.DIAGNOSTIC_MAXIMUM_LENGTH,
+        )
+        self.assertTrue(
+            diagnostic_output.getvalue().isascii()
+        )
+        self.assertNotIn(
+            raw_error,
+            diagnostic_output.getvalue(),
+        )
+
+    def test_linux_tray_diagnostic_reports_detached_backend(self):
+        icon = DiagnosticGtkIcon()
+        diagnostic_output = io.StringIO()
+
+        with (
+            patch.object(sys, "platform", "linux"),
+            patch.dict(
+                os.environ,
+                {
+                    "DISPLAY": ":99",
+                    "LEAGUE_MASTERY_TRACKER_TRAY_DIAGNOSTICS": "1",
+                },
+                clear=True,
+            ),
+            patch.object(sys, "stderr", diagnostic_output),
+        ):
+            self.assertIs(
+                self._start_with_icon(icon),
+                icon,
+            )
+
+        self.assertEqual(
+            diagnostic_output.getvalue(),
+            "Linux tray diagnostic: phase=runner-selection "
+            "status=selected backend=gtk has-menu=1 "
+            "has-default-action=1 runner=detached\n",
+        )
+        icon.run_detached.assert_called_once_with()
+        icon.run.assert_not_called()
+
+    def test_linux_tray_diagnostic_sanitizes_unknown_backend(self):
+        icon = UnrecognizedDiagnosticIcon()
+        diagnostic_output = io.StringIO()
+
+        with (
+            patch.object(sys, "platform", "linux"),
+            patch.dict(
+                os.environ,
+                {
+                    "DISPLAY": ":99",
+                    "LEAGUE_MASTERY_TRACKER_TRAY_DIAGNOSTICS": "1",
+                },
+                clear=True,
+            ),
+            patch.object(sys, "stderr", diagnostic_output),
+        ):
+            self._start_with_icon(icon)
+
+        self.assertEqual(
+            diagnostic_output.getvalue(),
+            "Linux tray diagnostic: phase=runner-selection "
+            "status=selected backend=unknown has-menu=unknown "
+            "has-default-action=unknown runner=detached\n",
+        )
+        self.assertNotIn(
+            "synthetic.unrecognized_backend",
+            diagnostic_output.getvalue(),
+        )
+        self.assertNotIn(
+            "synthetic capability marker",
+            diagnostic_output.getvalue(),
+        )
+
+    def test_tray_diagnostics_require_exact_linux_opt_in(self):
+        metadata_accesses = []
+
+        class ObservableCapability:
+            def __init__(self, name, value):
+                self.name = name
+                self.value = value
+
+            def __get__(self, instance, owner):
+                del instance
+                del owner
+                metadata_accesses.append(self.name)
+                return self.value
+
+        class ObservableIconMeta(type):
+            def __getattribute__(cls, name):
+                if name == "__module__":
+                    metadata_accesses.append(
+                        "backend-module"
+                    )
+                return super().__getattribute__(name)
+
+        class ObservableIcon(metaclass=ObservableIconMeta):
+            __module__ = "pystray._gtk"
+            HAS_MENU = ObservableCapability(
+                "HAS_MENU",
+                True,
+            )
+            HAS_DEFAULT_ACTION = ObservableCapability(
+                "HAS_DEFAULT_ACTION",
+                True,
+            )
+
+        icon = ObservableIcon()
+
+        for platform, environment in (
+            ("linux", {"DISPLAY": ":99"}),
+            (
+                "linux",
+                {
+                    "DISPLAY": ":99",
+                    "LEAGUE_MASTERY_TRACKER_TRAY_DIAGNOSTICS": "0",
+                },
+            ),
+            (
+                "linux",
+                {
+                    "DISPLAY": ":99",
+                    "LEAGUE_MASTERY_TRACKER_TRAY_DIAGNOSTICS": "",
+                },
+            ),
+            (
+                "linux",
+                {
+                    "DISPLAY": ":99",
+                    "LEAGUE_MASTERY_TRACKER_TRAY_DIAGNOSTICS": "true",
+                },
+            ),
+            (
+                "win32",
+                {"LEAGUE_MASTERY_TRACKER_TRAY_DIAGNOSTICS": "1"},
+            ),
+            (
+                "darwin",
+                {"LEAGUE_MASTERY_TRACKER_TRAY_DIAGNOSTICS": "1"},
+            ),
+        ):
+            with self.subTest(
+                platform=platform,
+                environment=environment,
+            ):
+                metadata_accesses.clear()
+                diagnostic_output = io.StringIO()
+
+                with (
+                    patch.object(sys, "platform", platform),
+                    patch.dict(
+                        os.environ,
+                        environment,
+                        clear=True,
+                    ),
+                    patch.object(sys, "stderr", diagnostic_output),
+                    patch.object(
+                        ApplicationTrayService,
+                        "_emit_diagnostic",
+                    ) as emitter,
+                ):
+                    self.service._emit_selection_diagnostic(
+                        icon,
+                        False,
+                    )
+
+                self.assertEqual(
+                    metadata_accesses,
+                    [],
+                )
+                emitter.assert_not_called()
+                self.assertEqual(
+                    diagnostic_output.getvalue(),
+                    "",
+                )
+
+        metadata_accesses.clear()
+        diagnostic_output = io.StringIO()
+
+        with (
+            patch.object(sys, "platform", "linux"),
+            patch.dict(
+                os.environ,
+                {
+                    "DISPLAY": ":99",
+                    "LEAGUE_MASTERY_TRACKER_TRAY_DIAGNOSTICS": "1",
+                },
+                clear=True,
+            ),
+            patch.object(sys, "stderr", diagnostic_output),
+        ):
+            self.service._emit_selection_diagnostic(
+                icon,
+                False,
+            )
+
+        self.assertEqual(
+            metadata_accesses,
+            [
+                "backend-module",
+                "HAS_MENU",
+                "HAS_DEFAULT_ACTION",
+            ],
+        )
+        self.assertEqual(
+            diagnostic_output.getvalue(),
+            "Linux tray diagnostic: phase=runner-selection "
+            "status=selected backend=gtk has-menu=1 "
+            "has-default-action=1 runner=detached\n",
+        )
+
+    def test_tray_diagnostic_write_failure_preserves_start(self):
+        icon = DiagnosticGtkIcon()
+
+        with (
+            patch.object(sys, "platform", "linux"),
+            patch.dict(
+                os.environ,
+                {
+                    "DISPLAY": ":99",
+                    "LEAGUE_MASTERY_TRACKER_TRAY_DIAGNOSTICS": "1",
+                },
+                clear=True,
+            ),
+            patch.object(
+                sys,
+                "stderr",
+                FailingDiagnosticStream(),
+            ),
+        ):
+            self.assertIs(
+                self._start_with_icon(icon),
+                icon,
+            )
+
+        self.assertTrue(self.service.is_running)
+        icon.run_detached.assert_called_once_with()
+        icon.run.assert_not_called()
+
+        with (
+            patch.object(sys, "platform", "linux"),
+            patch.dict(
+                os.environ,
+                {
+                    "LEAGUE_MASTERY_TRACKER_TRAY_DIAGNOSTICS": "1",
+                },
+            ),
+            patch.object(sys, "stderr", None),
+        ):
+            self.service._emit_selection_diagnostic(
+                icon,
+                False,
+            )
+
+    def test_windows_image_failure_is_not_unavailable(self):
+        pystray_module = Mock()
+
+        with (
+            patch.object(sys, "platform", "win32"),
+            patch.object(
+                self.service,
+                "_load_tray_dependencies",
+                return_value=(pystray_module, Image, ImageDraw),
+            ),
+            patch.object(
+                self.service,
+                "_create_icon_image",
+                side_effect=OSError("synthetic image failure"),
+            ),
+            self.assertRaises(OSError),
+        ):
+            self.service.start()
+
+    def test_unexpected_tray_errors_are_not_unavailable(self):
+        for error in (
+            RuntimeError("DISPLAY=/synthetic but unrelated"),
+            TypeError("DISPLAY=/synthetic but unrelated"),
+            AssertionError("DISPLAY=/synthetic but unrelated"),
+        ):
+            with self.subTest(error=type(error).__name__), \
+                patch.object(sys, "platform", "linux"), \
+                patch.dict(
+                    os.environ,
+                    {"DISPLAY": ":99"},
+                    clear=True,
+                ), \
+                patch.object(
+                    self.service,
+                    "_load_tray_dependencies",
+                    side_effect=error,
+                ), \
+                self.assertRaises(type(error)):
+                self.service.start()
 
     def test_default_settings_are_defined(self):
         self.assertEqual(
@@ -198,44 +840,28 @@ class ApplicationTrayServiceTests(
             "RGBA",
         )
 
-    @patch(
-        "application.services."
-        "application_tray_service."
-        "pystray.Icon"
-    )
-    @patch(
-        "application.services."
-        "application_tray_service."
-        "pystray.Menu"
-    )
-    @patch(
-        "application.services."
-        "application_tray_service."
-        "pystray.MenuItem"
-    )
-    def test_start_creates_and_runs_tray_icon(
-        self,
-        menu_item_class,
-        menu_class,
-        icon_class,
-    ):
+    def test_start_creates_and_runs_tray_icon(self):
         open_menu_item = object()
         shutdown_menu_item = object()
         menu = object()
         icon = Mock()
         separator = object()
 
-        menu_item_class.side_effect = (
+        pystray_module = Mock()
+        pystray_module.MenuItem.side_effect = (
             open_menu_item,
             shutdown_menu_item,
         )
+        pystray_module.Menu.return_value = menu
+        pystray_module.Menu.SEPARATOR = separator
+        pystray_module.Icon.return_value = icon
 
-        menu_class.return_value = menu
-        menu_class.SEPARATOR = separator
-
-        icon_class.return_value = icon
-
-        result = self.service.start()
+        with patch.object(
+            self.service,
+            "_load_tray_dependencies",
+            return_value=(pystray_module, Image, ImageDraw),
+        ):
+            result = self.service.start()
 
         self.assertIs(
             result,
@@ -251,7 +877,7 @@ class ApplicationTrayServiceTests(
             self.service.is_running
         )
 
-        menu_item_class.assert_has_calls(
+        pystray_module.MenuItem.assert_has_calls(
             [
                 call(
                     "Open League Mastery Tracker",
@@ -267,13 +893,13 @@ class ApplicationTrayServiceTests(
             ]
         )
 
-        menu_class.assert_called_once_with(
+        pystray_module.Menu.assert_called_once_with(
             open_menu_item,
             separator,
             shutdown_menu_item,
         )
 
-        icon_class.assert_called_once_with(
+        pystray_module.Icon.assert_called_once_with(
             name="LeagueMasteryTracker",
             icon=ANY,
             title="League Mastery Tracker",
@@ -282,41 +908,25 @@ class ApplicationTrayServiceTests(
 
         icon.run_detached.assert_called_once_with()
 
-    @patch(
-        "application.services."
-        "application_tray_service."
-        "pystray.Icon"
-    )
-    @patch(
-        "application.services."
-        "application_tray_service."
-        "pystray.Menu"
-    )
-    @patch(
-        "application.services."
-        "application_tray_service."
-        "pystray.MenuItem"
-    )
-    def test_repeated_start_reuses_existing_icon(
-        self,
-        menu_item_class,
-        menu_class,
-        icon_class,
-    ):
+    def test_repeated_start_reuses_existing_icon(self):
         icon = Mock()
+        pystray_module = Mock()
 
-        menu_item_class.side_effect = (
+        pystray_module.MenuItem.side_effect = (
             object(),
             object(),
         )
+        pystray_module.Menu.return_value = object()
+        pystray_module.Menu.SEPARATOR = object()
+        pystray_module.Icon.return_value = icon
 
-        menu_class.return_value = object()
-        menu_class.SEPARATOR = object()
-
-        icon_class.return_value = icon
-
-        first_result = self.service.start()
-        second_result = self.service.start()
+        with patch.object(
+            self.service,
+            "_load_tray_dependencies",
+            return_value=(pystray_module, Image, ImageDraw),
+        ):
+            first_result = self.service.start()
+            second_result = self.service.start()
 
         self.assertIs(
             first_result,
@@ -328,7 +938,7 @@ class ApplicationTrayServiceTests(
             icon,
         )
 
-        icon_class.assert_called_once()
+        pystray_module.Icon.assert_called_once()
 
         icon.run_detached.assert_called_once_with()
 
@@ -554,33 +1164,40 @@ class ApplicationTrayServiceXorgRunnerTests(
         self.service.stop()
 
     def _start_with_icon(self, icon):
-        with (
-            patch(
-                "application.services."
-                "application_tray_service.pystray.Icon",
-                return_value=icon,
-            ),
-            patch(
-                "application.services."
-                "application_tray_service.pystray.MenuItem",
-                side_effect=(object(), object()),
-            ),
-            patch(
-                "application.services."
-                "application_tray_service.pystray.Menu",
-                return_value=object(),
-            ) as menu_class,
+        pystray_module = Mock()
+        pystray_module.Icon.return_value = icon
+        pystray_module.MenuItem.side_effect = (
+            object(),
+            object(),
+        )
+        pystray_module.Menu.return_value = object()
+        pystray_module.Menu.SEPARATOR = object()
+
+        with patch.object(
+            self.service,
+            "_load_tray_dependencies",
+            return_value=(pystray_module, Image, ImageDraw),
         ):
-            menu_class.SEPARATOR = object()
             return self.service.start()
 
     def test_xorg_start_uses_one_owned_non_daemon_runner(self):
         icon = EventBackedXorgIcon()
+        diagnostic_output = io.StringIO()
 
-        self.assertIs(
-            self._start_with_icon(icon),
-            icon,
-        )
+        with (
+            patch.object(sys, "platform", "linux"),
+            patch.dict(
+                os.environ,
+                {
+                    "LEAGUE_MASTERY_TRACKER_TRAY_DIAGNOSTICS": "1",
+                },
+            ),
+            patch.object(sys, "stderr", diagnostic_output),
+        ):
+            self.assertIs(
+                self._start_with_icon(icon),
+                icon,
+            )
         self.assertTrue(icon.run_started.wait(1.0))
 
         runner = self.service.icon_runner_thread
@@ -593,6 +1210,12 @@ class ApplicationTrayServiceXorgRunnerTests(
         self.assertFalse(runner.daemon)
         self.assertEqual(icon.run_call_count, 1)
         icon.run_detached.assert_not_called()
+        self.assertEqual(
+            diagnostic_output.getvalue(),
+            "Linux tray diagnostic: phase=runner-selection "
+            "status=selected backend=xorg has-menu=0 "
+            "has-default-action=1 runner=owned-xorg\n",
+        )
 
     def test_stop_signals_and_joins_owned_runner(self):
         icon = EventBackedXorgIcon()

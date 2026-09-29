@@ -2,7 +2,7 @@ name: Linux tray G1 feasibility (manual)
 
 # G1 only: no frozen packaging or native tray acceptance.
 # GitHub requires this workflow on the default branch before manual dispatch;
-# select linux-compatibility when dispatching. Never substitute ubuntu-latest.
+# select main when dispatching. Never substitute ubuntu-latest.
 on:
   workflow_dispatch:
 
@@ -23,12 +23,11 @@ jobs:
     env:
       PYTHONDONTWRITEBYTECODE: "1"
       G1_WORK_ROOT: /var/tmp/lmt-g1-${{ github.run_id }}-${{ github.run_attempt }}
-      G1_DIAGNOSTICS: ${{ runner.temp }}/lmt-g1-diagnostics
     steps:
       - name: Guard manual branch and hosted execution
         run: |
           test "$GITHUB_EVENT_NAME" = workflow_dispatch
-          test "$GITHUB_REF" = refs/heads/linux-compatibility
+          test "$GITHUB_REF" = refs/heads/main
           test "$RUNNER_ENVIRONMENT" = github-hosted
 
       - name: Check out the dispatched source commit
@@ -40,6 +39,8 @@ jobs:
       - name: Prepare external paths and record source identity
         id: prepare
         run: |
+          G1_DIAGNOSTICS="${RUNNER_TEMP}/lmt-g1-diagnostics"
+          printf 'G1_DIAGNOSTICS=%s\n' "$G1_DIAGNOSTICS" >>"$GITHUB_ENV"
           source packaging/linux/run_tray_gates.sh
           test "$(validate_work_root "$G1_WORK_ROOT")" = "$G1_WORK_ROOT"
           test "$(validate_work_root "$G1_DIAGNOSTICS")" = "$G1_DIAGNOSTICS"
