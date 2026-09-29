@@ -92,6 +92,13 @@ class ApplicationTrayServiceTests(
     unittest.TestCase
 ):
     def setUp(self):
+        display_patch = patch.dict(
+            os.environ,
+            {"DISPLAY": ":99"},
+        )
+        display_patch.start()
+        self.addCleanup(display_patch.stop)
+
         self.open_application_callback = Mock(
             return_value=True
         )
@@ -1137,6 +1144,13 @@ class ApplicationTrayServiceXorgRunnerTests(
     unittest.TestCase
 ):
     def setUp(self):
+        display_patch = patch.dict(
+            os.environ,
+            {"DISPLAY": ":99"},
+        )
+        display_patch.start()
+        self.addCleanup(display_patch.stop)
+
         self.service = ApplicationTrayService(
             application_url="http://127.0.0.1:5000/",
             open_application_callback=Mock(
