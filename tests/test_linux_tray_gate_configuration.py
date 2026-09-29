@@ -21,6 +21,7 @@ from packaging.tags import sys_tags
 from packaging.utils import parse_wheel_filename
 
 
+@unittest.skipUnless(sys.platform.startswith("linux"), "Linux tray gate tooling required")
 class LinuxTrayGateConfigurationTests(unittest.TestCase):
     PYGOBJECT_GI_SOURCES = (
         "pygboxed", "pygenum", "pygflags", "pyginterface", "pygobject-object",
