@@ -103,6 +103,7 @@ Fill in the icon column by hand.
 | Windows version | Python version | Commit | Spec | Command | Start/end time | Exit code | Warnings | Executable path | Executable size | SHA-256 | Version metadata | Icon result | Console-window result |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | Microsoft Windows 11 Home 10.0.26200 build 26200 | 3.12.10 (64bit) | ec7d3434a325 | LeagueMasteryTracker-onefile.spec | `python -m PyInstaller --clean --noconfirm LeagueMasteryTracker-onefile.spec` | 2026-09-29 18:30:03Z to 2026-09-29 18:30:24Z | 0 | 3 | dist\LeagueMasteryTracker.exe | 32908384 | 61FB43B2ACEB67FA8751A235E023A1D4B634CA345F457E0DAAA24D13C3B4FE08 | League Mastery Tracker 2.0.0 / file 2.0.0 | Application icon shown in File Explorer | Windows GUI (no console window) |
+| Microsoft Windows 11 Home 10.0.26200 build 26200 | 3.12.10 (64bit) | 8d5c426111a4 | LeagueMasteryTracker-onefile.spec | `python -m PyInstaller --clean --noconfirm LeagueMasteryTracker-onefile.spec` | 2026-09-29 19:40:21Z to 2026-09-29 19:40:41Z | 0 | 3 | dist\LeagueMasteryTracker.exe | 32908711 | 6C646C61168502562D27F5C62B50251BA597F91580BBCF69F498526D9B1BC09A | League Mastery Tracker 2.0.0 / file 2.0.0 | Not rechecked for this build | Windows GUI (no console window) |
 
 The script computes the SHA-256 itself. To recheck a copied executable, use:
 
@@ -152,6 +153,13 @@ matched the manifest and the bundled dataset was rejected. Fixed by
 `.gitattributes` marking `application/bundled_reference_data/**` as `-text`;
 repeat this section with a rebuilt executable.
 
+Result (2026-09-29, build `6C646C61…9B1BC09A` from commit `8d5c426111a4`,
+after re-checking out the bundled JSON files with SHA-256 `52E3A2AB…` for
+`champions.json`, fresh data directory `C:\Step10-Acceptance\fresh`):
+passed. The home page reported "Bundled dataset", the database held 173
+champions, all with names and images, and the application showed 173
+champions without any Data Dragon update.
+
 ## Visual and responsive acceptance
 
 Review every route/page at 1920x1080, 1366x768, 1280x720, and a narrow
@@ -186,6 +194,17 @@ reference data are deliberate network actions. Perform those steps only with
 explicitly supplied test credentials and network availability; do not request
 or record real credentials in this checklist.
 
+Result (2026-09-29): passed with build `61FB43B2…C3B4FE08` (commit
+`ec7d3434a325`): Riot API key saved, Person and Riot account added, Mastery
+synchronized with names and images, Database backup created, JSON export
+and import, Database restore, manual reference-data update, and restart with
+persisted data. Unknown champion and Missing metadata handling was exercised
+by League Classic IDs 60029 and 60099, which Riot returns as 60000 plus the
+regular champion ID; they were stored as Unknown champions and listed on the
+Missing metadata page. After Classic Mastery was excluded from scope, one
+synchronization with build `6C646C61…9B1BC09A` (commit `8d5c426111a4`)
+removed both, leaving no Missing metadata entries.
+
 ## Lifecycle acceptance
 
 Verify single-instance behavior, tab lifecycle handling, Controlled shutdown,
@@ -199,7 +218,8 @@ acceptance.
 
 | Check | Expected | Actual | Pass/fail | Evidence | Issue/follow-up |
 | --- | --- | --- | --- | --- | --- |
-| | | | | | |
+| Offline first startup: bundled reference data | "Bundled dataset" active with 173 named champions | "Database-only fallback", 0 champions | Fail, then pass on rebuild | Build `61FB43B2…`; fresh data directory query `(0, 0, 0)`, then `(173, 173, 173)` with build `6C646C61…` | CRLF checkout broke the `champions.json` checksum; fixed by `.gitattributes` (`-text`) and a checked-out dataset test |
+| Synchronization: League Classic IDs 60029 and 60099 | Only regular Champion Mastery shown | Two Unknown champions on the Missing metadata page | Out of scope, then pass on rebuild | Riot returned League Classic Twitch and Lux as 60000 plus the regular ID | Synchronization skips IDs 60001-60999 and removes unused Classic champions; a Classic view is a later candidate |
 
 ## Completion and final gate
 
