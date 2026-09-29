@@ -1,10 +1,12 @@
 import sqlite3
+import sys
 from datetime import datetime
 
 from flask import (
     Blueprint,
     current_app,
     flash,
+    g,
     redirect,
     render_template,
     request,
@@ -40,6 +42,10 @@ def get_settings():
 
     api_key_status = (
         RiotApiKeyService.get_status()
+    )
+
+    g.api_key_storage = (
+        _get_api_key_storage_presentation()
     )
 
     backup_status = (
@@ -245,6 +251,36 @@ def create_manual_backup():
             "settings.get_settings"
         )
     )
+
+
+def _get_api_key_storage_presentation():
+    """
+    Return safe Settings presentation data for key persistence.
+    """
+
+    if sys.platform.startswith("linux"):
+        storage_status = (
+            RiotApiKeyService
+            .get_persistent_storage_status()
+        )
+
+        return {
+            "platform": "linux",
+            "persistent_saving_available": bool(
+                storage_status["available"]
+            ),
+        }
+
+    if sys.platform == "win32":
+        return {
+            "platform": "windows",
+            "persistent_saving_available": True,
+        }
+
+    return {
+        "platform": "other",
+        "persistent_saving_available": False,
+    }
 
 
 def _get_backup_status():

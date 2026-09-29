@@ -27,6 +27,16 @@
 {% endblock %}
 
 {% block content %}
+    {% set api_key_storage = g.api_key_storage|default(
+        {
+            "platform": "windows",
+            "persistent_saving_available": True,
+        }
+    ) %}
+    {% set persistent_saving_unavailable = (
+        not api_key_storage.persistent_saving_available
+    ) %}
+
     <div class="section-stack">
         <section
             class="card card--raised"
@@ -59,20 +69,34 @@
                 {% endif %}
             </div>
 
-            {% if api_key_status.error %}
+            {% if persistent_saving_unavailable %}
+                <p
+                    id="api-key-storage-help"
+                    class="notice notice-warning"
+                    role="status"
+                >
+                    {% if api_key_storage.platform == "linux" %}
+                        Secure Riot API key storage is unavailable for this Linux session. Persistent saving is disabled. You can still provide RIOT_API_KEY through the environment.
+                    {% else %}
+                        Secure Riot API key storage is unavailable on this platform. Persistent saving is disabled. You can still provide RIOT_API_KEY through the environment.
+                    {% endif %}
+                </p>
+
+            {% endif %}
+
+            {% if api_key_status.error and not persistent_saving_unavailable %}
                 <div
                     class="notice notice-error"
                     role="alert"
                 >
                     <strong>
-                        The locally stored Riot API key could not be
-                        decrypted.
+                        The securely stored Riot API key could not be read.
                     </strong>
 
                     <p>
-                        The file may be damaged or encrypted by another
-                        Windows user. Save a new Riot API key below to
-                        replace it.
+                        It may be unavailable or damaged. Your other
+                        application data remains safe. Save a new Riot API
+                        key below to replace it.
                     </p>
                 </div>
 
@@ -120,7 +144,7 @@
                         </dd>
                     </div>
 
-                    {% if api_key_status.source == "local" %}
+                    {% if api_key_status.source == "local" and api_key_storage.platform == "windows" %}
                         <div class="metadata-item">
                             <dt class="metadata-label">
                                 Encryption
@@ -151,6 +175,16 @@
                     No Riot API key is configured.
                     Riot accounts cannot be synchronized until a
                     valid key has been entered.
+                </p>
+            {% endif %}
+
+            {% if api_key_storage.platform == "linux" and api_key_storage.persistent_saving_available %}
+                <p
+                    id="api-key-storage-help"
+                    class="notice"
+                    role="status"
+                >
+                    On Linux, saved Riot API keys are stored securely in your desktop Secret Service.
                 </p>
             {% endif %}
 
@@ -196,7 +230,14 @@
                         autocomplete="off"
                         spellcheck="false"
                         required
-                        aria-describedby="api-key-help"
+                        {% if not api_key_storage.persistent_saving_available %}
+                            disabled
+                        {% endif %}
+                        {% if not api_key_storage.persistent_saving_available %}
+                            aria-describedby="api-key-help api-key-storage-help"
+                        {% else %}
+                            aria-describedby="api-key-help"
+                        {% endif %}
                     >
 
                     <p
@@ -209,7 +250,12 @@
                 </div>
 
                 <div class="actions">
-                    <button type="submit">
+                    <button
+                        type="submit"
+                        {% if not api_key_storage.persistent_saving_available %}
+                            disabled
+                        {% endif %}
+                    >
                         Save or replace key
                     </button>
                 </div>
@@ -486,13 +532,25 @@
             <div class="grid grid--3">
                 <article class="card card--compact">
                     <h3>
-                        API key encryption
+                        {% if api_key_storage.platform == "windows" %}
+                            API key encryption
+                        {% else %}
+                            API key storage
+                        {% endif %}
                     </h3>
 
                     <p>
-                        The locally stored Riot API key is encrypted
-                        with Windows DPAPI before it is written to
-                        disk.
+                        {% if api_key_storage.platform == "windows" %}
+                            The locally stored Riot API key is encrypted
+                            with Windows DPAPI before it is written to
+                            disk.
+                        {% elif api_key_storage.platform == "linux" %}
+                            Saved Riot API keys use your desktop secure
+                            storage when persistent saving is available.
+                        {% else %}
+                            Persistent Riot API key storage is unavailable
+                            on this platform.
+                        {% endif %}
                     </p>
                 </article>
 
@@ -510,13 +568,25 @@
 
                 <article class="card card--compact">
                     <h3>
-                        Windows user scope
+                        {% if api_key_storage.platform == "windows" %}
+                            Windows user scope
+                        {% else %}
+                            Local storage availability
+                        {% endif %}
                     </h3>
 
                     <p>
-                        A new Riot API key must be entered after
-                        moving the application to another Windows
-                        user or computer.
+                        {% if api_key_storage.platform == "windows" %}
+                            A new Riot API key must be entered after
+                            moving the application to another Windows
+                            user or computer.
+                        {% elif api_key_storage.platform == "linux" %}
+                            Environment-provided keys remain separate from
+                            keys saved by the application.
+                        {% else %}
+                            Provide RIOT_API_KEY through the environment
+                            when persistent storage is unavailable.
+                        {% endif %}
                     </p>
                 </article>
             </div>

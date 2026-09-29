@@ -13,6 +13,7 @@ MarkupSafe==3.0.3
 Pillow==12.3.0
 pystray==0.19.5
 requests==2.34.2
+SecretStorage==3.4.0
 SQLAlchemy==2.0.51
 typing_extensions==4.16.0
 urllib3==2.7.0

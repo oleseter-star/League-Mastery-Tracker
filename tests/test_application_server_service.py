@@ -1,6 +1,9 @@
+import errno
 import socket
+import sys
+import time
 import unittest
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, call, patch
 
 from application.services.application_server_service import (
     ApplicationPortInUseError,
@@ -11,6 +14,57 @@ from application.services.application_server_service import (
 class ApplicationServerServiceTests(
     unittest.TestCase
 ):
+    SOCKET_TIMEOUT_SECONDS = 2.0
+
+    @staticmethod
+    def _linux_tcp_state_present(
+        port,
+        state,
+    ):
+        expected_address = (
+            f"0100007F:{port:04X}"
+        )
+
+        with open(
+            "/proc/net/tcp",
+            encoding="ascii",
+        ) as tcp_table:
+            next(tcp_table)
+
+            return any(
+                fields[1] == expected_address
+                and fields[3] == state
+                for fields in (
+                    line.split()
+                    for line in tcp_table
+                )
+            )
+
+    @classmethod
+    def _wait_for_linux_tcp_state(
+        cls,
+        port,
+        state,
+    ):
+        deadline = (
+            time.monotonic()
+            + cls.SOCKET_TIMEOUT_SECONDS
+        )
+
+        while time.monotonic() < deadline:
+            if cls._linux_tcp_state_present(
+                port,
+                state,
+            ):
+                return True
+
+            time.sleep(0.01)
+
+        return cls._linux_tcp_state_present(
+            port,
+            state,
+        )
+
     def test_default_server_address_is_local_only(
         self
     ):
@@ -78,13 +132,25 @@ class ApplicationServerServiceTests(
     @patch(
         "application.services."
         "application_server_service."
+        "sys.platform",
+        "linux",
+    )
+    @patch(
+        "application.services."
+        "application_server_service."
         "socket.socket"
     )
     def test_available_port_passes_validation(
         self,
         socket_constructor,
     ):
-        test_socket = Mock(spec=("bind", "close"))
+        test_socket = Mock(
+            spec=(
+                "setsockopt",
+                "bind",
+                "close",
+            )
+        )
         socket_constructor.return_value = test_socket
 
         service = ApplicationServerService(
@@ -97,11 +163,80 @@ class ApplicationServerServiceTests(
             socket.AF_INET,
             socket.SOCK_STREAM,
         )
-        test_socket.bind.assert_called_once_with(
-            ("127.0.0.1", 5125),
+        self.assertEqual(
+            test_socket.mock_calls,
+            [
+                call.setsockopt(
+                    socket.SOL_SOCKET,
+                    socket.SO_REUSEADDR,
+                    1,
+                ),
+                call.bind(
+                    ("127.0.0.1", 5125),
+                ),
+                call.close(),
+            ],
         )
-        test_socket.close.assert_called_once_with()
 
+    @patch(
+        "application.services."
+        "application_server_service."
+        "socket.socket"
+    )
+    def test_non_linux_port_check_remains_option_free(
+        self,
+        socket_constructor,
+    ):
+        for platform_name in (
+            "win32",
+            "darwin",
+        ):
+            with self.subTest(
+                platform_name=platform_name
+            ):
+                test_socket = Mock(
+                    spec=(
+                        "setsockopt",
+                        "bind",
+                        "close",
+                    )
+                )
+                socket_constructor.return_value = (
+                    test_socket
+                )
+
+                with patch(
+                    "application.services."
+                    "application_server_service."
+                    "sys.platform",
+                    platform_name,
+                ):
+                    ApplicationServerService(
+                        port=5125,
+                    ).ensure_port_available()
+
+                test_socket.setsockopt.assert_not_called()
+                self.assertEqual(
+                    test_socket.mock_calls,
+                    [
+                        call.bind(
+                            ("127.0.0.1", 5125),
+                        ),
+                        call.close(),
+                    ],
+                )
+
+        self.assertEqual(
+            socket_constructor.call_count,
+            2,
+        )
+
+    @patch(
+        "application.services."
+        "application_server_service."
+        "sys.platform",
+        "linux",
+    )
     @patch(
         "application.services."
         "application_server_service."
@@ -111,10 +246,18 @@ class ApplicationServerServiceTests(
         self,
         socket_constructor,
     ):
-        test_socket = Mock(spec=("bind", "close"))
-        test_socket.bind.side_effect = OSError(
-            "Address already in use."
+        raw_error = OSError(
+            errno.EADDRINUSE,
+            "Address already in use.",
         )
+        test_socket = Mock(
+            spec=(
+                "setsockopt",
+                "bind",
+                "close",
+            )
+        )
+        test_socket.bind.side_effect = raw_error
         socket_constructor.return_value = test_socket
 
         service = ApplicationServerService(
@@ -123,17 +266,167 @@ class ApplicationServerServiceTests(
 
         with self.assertRaises(
             ApplicationPortInUseError
-        ):
+        ) as raised:
             service.ensure_port_available()
 
-        socket_constructor.assert_called_once_with(
+        self.assertEqual(
+            str(raised.exception),
+            "League Mastery Tracker could not start because "
+            "local port 5125 is already in use.",
+        )
+        self.assertIs(
+            raised.exception.__cause__,
+            raw_error,
+        )
+        self.assertEqual(
+            test_socket.mock_calls,
+            [
+                call.setsockopt(
+                    socket.SOL_SOCKET,
+                    socket.SO_REUSEADDR,
+                    1,
+                ),
+                call.bind(
+                    ("127.0.0.1", 5125),
+                ),
+                call.close(),
+            ],
+        )
+
+    @unittest.skipUnless(
+        sys.platform.startswith("linux"),
+        "Linux TCP state behavior is required.",
+    )
+    def test_linux_time_wait_address_is_available(
+        self
+    ):
+        listener = socket.socket(
             socket.AF_INET,
             socket.SOCK_STREAM,
         )
-        test_socket.bind.assert_called_once_with(
-            ("127.0.0.1", 5125),
+        client = None
+        accepted = None
+        plain_probe = None
+
+        try:
+            listener.settimeout(
+                self.SOCKET_TIMEOUT_SECONDS
+            )
+            listener.setsockopt(
+                socket.SOL_SOCKET,
+                socket.SO_REUSEADDR,
+                1,
+            )
+            listener.bind(("127.0.0.1", 0))
+            port = listener.getsockname()[1]
+            self.assertNotEqual(port, 5000)
+            listener.listen(1)
+
+            client = socket.socket(
+                socket.AF_INET,
+                socket.SOCK_STREAM,
+            )
+            client.settimeout(
+                self.SOCKET_TIMEOUT_SECONDS
+            )
+            client.connect(("127.0.0.1", port))
+
+            accepted, _address = listener.accept()
+            accepted.settimeout(
+                self.SOCKET_TIMEOUT_SECONDS
+            )
+            accepted.shutdown(socket.SHUT_WR)
+            self.assertEqual(client.recv(1), b"")
+            client.close()
+            client = None
+            self.assertEqual(accepted.recv(1), b"")
+            accepted.close()
+            accepted = None
+            listener.close()
+
+            self.assertTrue(
+                self._wait_for_linux_tcp_state(
+                    port,
+                    "06",
+                ),
+                "Server-side TIME-WAIT was not established.",
+            )
+
+            plain_probe = socket.socket(
+                socket.AF_INET,
+                socket.SOCK_STREAM,
+            )
+            with self.assertRaises(OSError) as old_behavior:
+                plain_probe.bind(("127.0.0.1", port))
+            self.assertEqual(
+                old_behavior.exception.errno,
+                errno.EADDRINUSE,
+            )
+            plain_probe.close()
+            plain_probe = None
+
+            ApplicationServerService(
+                port=port,
+            ).ensure_port_available()
+
+        finally:
+            if plain_probe is not None:
+                plain_probe.close()
+            if accepted is not None:
+                accepted.close()
+            if client is not None:
+                client.close()
+            listener.close()
+
+    @unittest.skipUnless(
+        sys.platform.startswith("linux"),
+        "Linux TCP binding behavior is required.",
+    )
+    def test_linux_live_reusable_listener_is_rejected(
+        self
+    ):
+        listener = socket.socket(
+            socket.AF_INET,
+            socket.SOCK_STREAM,
         )
-        test_socket.close.assert_called_once_with()
+
+        try:
+            listener.settimeout(
+                self.SOCKET_TIMEOUT_SECONDS
+            )
+            listener.setsockopt(
+                socket.SOL_SOCKET,
+                socket.SO_REUSEADDR,
+                1,
+            )
+            listener.bind(("127.0.0.1", 0))
+            port = listener.getsockname()[1]
+            self.assertNotEqual(port, 5000)
+            listener.listen(1)
+
+            with self.assertRaises(
+                ApplicationPortInUseError
+            ) as raised:
+                ApplicationServerService(
+                    port=port,
+                ).ensure_port_available()
+
+            self.assertEqual(
+                str(raised.exception),
+                "League Mastery Tracker could not start because "
+                f"local port {port} is already in use.",
+            )
+            self.assertIsInstance(
+                raised.exception.__cause__,
+                OSError,
+            )
+            self.assertEqual(
+                raised.exception.__cause__.errno,
+                errno.EADDRINUSE,
+            )
+
+        finally:
+            listener.close()
 
     @patch(
         "application.services."

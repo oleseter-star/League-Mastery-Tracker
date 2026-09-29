@@ -1,8 +1,16 @@
+import io
+import os
+import sys
 import unittest
+from contextlib import redirect_stderr, redirect_stdout
 from unittest.mock import Mock, call, patch
 
 from application.services.application_launcher_service import (
     ApplicationLauncherService,
+)
+from application.services.application_tray_service import (
+    ApplicationTrayService,
+    ApplicationTrayUnavailableError,
 )
 
 
@@ -250,6 +258,159 @@ class ApplicationLauncherServiceTests(
         self.tab_lifecycle_service.start.assert_not_called()
         self.browser_service.start_background_open.assert_not_called()
         self.server_service.run.assert_not_called()
+
+    def test_linux_tray_unavailability_keeps_server_lifecycle_running(
+        self
+    ):
+        self.instance_service.acquire.return_value = True
+        self.server_service.shutdown_requested = False
+        raw_failure = (
+            "SYNTHETIC_X11_DISPLAY_SLICE4 "
+            "SYNTHETIC_WAYLAND_SOCKET_SLICE4 "
+            "SYNTHETIC_TRAY_BACKEND_SLICE4 "
+            "/synthetic/tray/backend/socket "
+            "DisplayConnectionError "
+            "Traceback (most recent call last): "
+            "SYNTHETIC_TRAY_TRACEBACK_FRAME_SLICE4"
+        )
+        unavailable_error = ApplicationTrayUnavailableError(
+            "Notification-area support is unavailable."
+        )
+        unavailable_error.__cause__ = OSError(raw_failure)
+        tray_service = ApplicationTrayService(
+            application_url="http://127.0.0.1:5000/",
+            open_application_callback=self.browser_service.open_browser,
+            shutdown_callback=self.server_service.request_shutdown,
+        )
+        pystray_module = Mock()
+        image_factory = Mock()
+        menu_factory = pystray_module.Menu
+        menu_item_factory = pystray_module.MenuItem
+        icon_factory = pystray_module.Icon
+        self.launcher.tray_service = tray_service
+        self.server_service.run.side_effect = KeyboardInterrupt
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+
+        with (
+            patch.object(sys, "platform", "linux"),
+            patch.dict(os.environ, {}, clear=True),
+            patch.object(
+                tray_service,
+                "_load_tray_dependencies",
+                return_value=(pystray_module, Mock(), Mock()),
+            ) as dependency_loader,
+            patch.object(
+                tray_service,
+                "_create_icon_image",
+                image_factory,
+            ),
+            patch.object(
+                tray_service,
+                "_raise_linux_tray_unavailable",
+                side_effect=unavailable_error,
+            ),
+            redirect_stdout(stdout),
+            redirect_stderr(stderr),
+        ):
+            result = self.launcher.run()
+
+        self.assertEqual(
+            result,
+            {
+                "started": True,
+                "reason": "user_requested_shutdown",
+            },
+        )
+        dependency_loader.assert_not_called()
+        image_factory.assert_not_called()
+        menu_factory.assert_not_called()
+        menu_item_factory.assert_not_called()
+        icon_factory.assert_not_called()
+        self.tab_lifecycle_service.start.assert_called_once_with()
+        self.browser_service.start_background_open.assert_called_once_with()
+        self.server_service.run.assert_called_once_with()
+        self.server_service.close.assert_called_once_with()
+        self.instance_service.release.assert_called_once_with()
+        self.assertFalse(self.server_service.shutdown_requested)
+        for marker in (
+            raw_failure,
+            "SYNTHETIC_X11_DISPLAY_SLICE4",
+            "SYNTHETIC_WAYLAND_SOCKET_SLICE4",
+            "SYNTHETIC_TRAY_BACKEND_SLICE4",
+            "/synthetic/tray/backend/socket",
+            "DisplayConnectionError",
+            "Traceback (most recent call last):",
+            "SYNTHETIC_TRAY_TRACEBACK_FRAME_SLICE4",
+        ):
+            self.assertNotIn(marker, stdout.getvalue())
+            self.assertNotIn(marker, stderr.getvalue())
+
+    def test_windows_tray_unavailability_is_not_downgraded(self):
+        self.instance_service.acquire.return_value = True
+        self.tray_service.start.side_effect = (
+            ApplicationTrayUnavailableError("synthetic unavailable")
+        )
+
+        with patch.object(sys, "platform", "win32"), self.assertRaises(
+            ApplicationTrayUnavailableError
+        ):
+            self.launcher.run()
+
+        self.tab_lifecycle_service.start.assert_not_called()
+        self.browser_service.start_background_open.assert_not_called()
+        self.server_service.run.assert_not_called()
+
+    def test_early_shutdown_is_not_missed_in_trayless_mode(self):
+        self.instance_service.acquire.return_value = True
+        self.server_service.shutdown_requested = True
+        self.tray_service.start.side_effect = (
+            ApplicationTrayUnavailableError("synthetic unavailable")
+        )
+        self.server_service.run.side_effect = KeyboardInterrupt
+
+        with patch.object(sys, "platform", "linux"):
+            result = self.launcher.run()
+
+        self.assertEqual(
+            result,
+            {
+                "started": True,
+                "reason": "application_requested_shutdown",
+            },
+        )
+        self.browser_service.start_background_open.assert_called_once_with()
+        self.server_service.run.assert_called_once_with()
+        self.server_service.close.assert_called_once_with()
+        self.instance_service.release.assert_called_once_with()
+
+    def test_shutdown_during_tray_failure_completes_trayless_lifecycle(
+        self,
+    ):
+        self.instance_service.acquire.return_value = True
+        self.server_service.shutdown_requested = False
+
+        def unavailable_after_shutdown():
+            self.server_service.shutdown_requested = True
+            raise ApplicationTrayUnavailableError("synthetic unavailable")
+
+        self.tray_service.start.side_effect = unavailable_after_shutdown
+        self.server_service.run.side_effect = KeyboardInterrupt
+
+        with patch.object(sys, "platform", "linux"):
+            result = self.launcher.run()
+
+        self.assertEqual(
+            result,
+            {
+                "started": True,
+                "reason": "application_requested_shutdown",
+            },
+        )
+        self.browser_service.start_background_open.assert_called_once_with()
+        self.server_service.run.assert_called_once_with()
+        self.server_service.close.assert_called_once_with()
+        self.instance_service.release.assert_called_once_with()
 
     def test_keyboard_interrupt_is_clean_shutdown(
         self
