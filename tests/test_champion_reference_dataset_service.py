@@ -8,6 +8,31 @@ from application.services.champion_reference_dataset_service import (
     ChampionReferenceDatasetError,
     ChampionReferenceDatasetService,
 )
+from application.services.champion_reference_resource_service import (
+    ChampionReferenceResourceService,
+)
+
+
+class CheckedOutBundledDatasetTests(
+    unittest.TestCase
+):
+    def test_checked_out_bundled_dataset_is_valid(self):
+        """
+        The tracked bundled dataset must validate exactly as checked out.
+
+        A line-ending conversion on checkout changes champions.json's
+        bytes, fails the manifest checksum, and silently leaves the
+        application on its database-only fallback.
+        """
+
+        dataset = ChampionReferenceDatasetService().load_dataset(
+            ChampionReferenceResourceService.get_dataset_directory()
+        )
+
+        self.assertEqual(
+            len(dataset["champions"]),
+            dataset["manifest"]["champion_count"],
+        )
 
 
 class ChampionReferenceDatasetServiceTests(

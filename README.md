@@ -94,6 +94,8 @@ Adding a Riot account resolves the Riot ID through Riot's API and stores its PUU
 - Synchronize accounts that have never been synchronized or whose Last synchronized time is at least 24 hours old.
 - Synchronize every stored Riot account, regardless of age.
 
+Champion Mastery from the League Classic game mode, which Riot reports as 60000 plus the regular champion ID, is not stored; synchronization also removes Classic records saved by earlier versions.
+
 Synchronization updates local data account by account. A failure for one account does not stop the remaining accounts, and existing local records remain available when the network or Riot API is unavailable. Normal offline browsing does not initiate synchronization.
 
 ## Run from source

@@ -1,0 +1,4 @@
+# The bundled manifest stores a SHA-256 of champions.json's exact bytes.
+# Line-ending conversion on checkout (Git for Windows defaults to CRLF)
+# changes those bytes and makes the application reject the bundled data.
+application/bundled_reference_data/** -text

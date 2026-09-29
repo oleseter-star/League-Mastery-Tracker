@@ -10,6 +10,31 @@ class ChampionService:
     Service layer for local champion reference management.
     """
 
+    # League Classic reports Champion Mastery under 60000 plus the
+    # regular Riot champion ID. Classic Mastery is outside the 2.0 scope.
+    CLASSIC_CHAMPION_ID_MINIMUM = 60001
+    CLASSIC_CHAMPION_ID_MAXIMUM = 60999
+
+    @staticmethod
+    def is_classic_champion_id(riot_champion_id):
+        """
+        Return whether a Riot champion ID belongs to League Classic.
+        """
+
+        try:
+            normalized_id = int(
+                riot_champion_id
+            )
+
+        except (TypeError, ValueError):
+            return False
+
+        return (
+            ChampionService.CLASSIC_CHAMPION_ID_MINIMUM
+            <= normalized_id
+            <= ChampionService.CLASSIC_CHAMPION_ID_MAXIMUM
+        )
+
     @staticmethod
     def get_all_champions():
         """
