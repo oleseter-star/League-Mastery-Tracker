@@ -11,6 +11,7 @@ from application.database.models import (
     Person,
     RiotAccount,
 )
+from application.services.champion_service import ChampionService
 from application.services.sync_service import SyncService
 
 
@@ -866,6 +867,206 @@ class SyncServiceTestCase(unittest.TestCase):
         self.assertEqual(
             remaining_masteries[0].mastery_points,
             999,
+        )
+
+    def test_classic_champion_id_range_is_narrow(self):
+        """
+        Only 60000 plus a regular Riot champion ID counts as Classic.
+        """
+
+        for riot_champion_id in [60001, 60029, 60099, 60999, "60099"]:
+            self.assertTrue(
+                ChampionService.is_classic_champion_id(
+                    riot_champion_id
+                ),
+                riot_champion_id,
+            )
+
+        for riot_champion_id in [1, 29, 999, 60000, 61000, 999999, None, "Lux"]:
+            self.assertFalse(
+                ChampionService.is_classic_champion_id(
+                    riot_champion_id
+                ),
+                riot_champion_id,
+            )
+
+    def test_classic_mastery_is_not_stored(self):
+        """
+        League Classic Mastery is skipped without creating Unknown champions.
+        """
+
+        account = self.create_account(
+            puuid="puuid-classic",
+            game_name="Classic",
+        )
+
+        fake_riot_service = FakeRiotService(
+            mastery_by_puuid={
+                "puuid-classic": [
+                    {
+                        "championId": 29,
+                        "championPoints": 50000,
+                    },
+                    {
+                        "championId": 60029,
+                        "championPoints": 900,
+                    },
+                    {
+                        "championId": 60099,
+                        "championPoints": 800,
+                    },
+                ]
+            }
+        )
+
+        result = SyncService(
+            riot_service=fake_riot_service
+        ).sync_mastery(
+            riot_account_id=account.id
+        )
+
+        self.assertEqual(
+            result["mastery_records"],
+            1,
+        )
+
+        self.assertEqual(
+            [
+                champion.riot_champion_id
+                for champion in Champion.query.all()
+            ],
+            [29],
+        )
+
+        self.assertEqual(
+            ChampionMastery.query.one().mastery_points,
+            50000,
+        )
+
+    def test_sync_removes_previously_stored_classic_mastery(self):
+        """
+        Classic records stored by earlier versions are cleaned up on sync.
+        """
+
+        account = self.create_account(
+            puuid="puuid-classic-cleanup",
+            game_name="Cleanup",
+        )
+
+        classic_champion = Champion(
+            riot_champion_id=60029,
+            name=None,
+            source="riot",
+        )
+
+        db.session.add(
+            classic_champion
+        )
+
+        db.session.flush()
+
+        db.session.add(
+            ChampionMastery(
+                riot_account_id=account.id,
+                champion_id=classic_champion.id,
+                mastery_points=900,
+            )
+        )
+
+        db.session.commit()
+
+        fake_riot_service = FakeRiotService(
+            mastery_by_puuid={
+                "puuid-classic-cleanup": [
+                    {
+                        "championId": 60029,
+                        "championPoints": 950,
+                    },
+                ]
+            }
+        )
+
+        SyncService(
+            riot_service=fake_riot_service
+        ).sync_mastery(
+            riot_account_id=account.id
+        )
+
+        self.assertEqual(
+            ChampionMastery.query.count(),
+            0,
+        )
+
+        self.assertIsNone(
+            Champion.query.filter_by(
+                riot_champion_id=60029
+            ).one_or_none()
+        )
+
+    def test_classic_champion_is_kept_while_another_account_uses_it(self):
+        """
+        Cleanup never removes a champion that still has Mastery records.
+        """
+
+        synced_account = self.create_account(
+            puuid="puuid-classic-synced",
+            game_name="Synced",
+        )
+
+        other_account = self.create_account(
+            puuid="puuid-classic-other",
+            game_name="Other",
+        )
+
+        classic_champion = Champion(
+            riot_champion_id=60099,
+            name=None,
+            source="riot",
+        )
+
+        db.session.add(
+            classic_champion
+        )
+
+        db.session.flush()
+
+        db.session.add_all(
+            [
+                ChampionMastery(
+                    riot_account_id=synced_account.id,
+                    champion_id=classic_champion.id,
+                    mastery_points=800,
+                ),
+                ChampionMastery(
+                    riot_account_id=other_account.id,
+                    champion_id=classic_champion.id,
+                    mastery_points=700,
+                ),
+            ]
+        )
+
+        db.session.commit()
+
+        SyncService(
+            riot_service=FakeRiotService()
+        ).sync_mastery(
+            riot_account_id=synced_account.id
+        )
+
+        remaining_masteries = ChampionMastery.query.all()
+
+        self.assertEqual(
+            [
+                mastery.riot_account_id
+                for mastery in remaining_masteries
+            ],
+            [other_account.id],
+        )
+
+        self.assertIsNotNone(
+            Champion.query.filter_by(
+                riot_champion_id=60099
+            ).one_or_none()
         )
 
 

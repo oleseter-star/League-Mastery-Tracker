@@ -7,6 +7,7 @@ from application.database.models import (
     Champion,
     ChampionMastery,
 )
+from application.services.champion_service import ChampionService
 from application.services.riot_service import RiotService
 
 
@@ -164,6 +165,11 @@ class SyncService:
                 if riot_champion_id is None:
                     continue
 
+                if ChampionService.is_classic_champion_id(
+                    riot_champion_id
+                ):
+                    continue
+
                 if mastery_points is None:
                     mastery_points = 0
 
@@ -224,6 +230,10 @@ class SyncService:
                         existing_mastery
                     )
 
+            db.session.flush()
+
+            self._remove_unused_classic_champions()
+
             riot_account.last_sync = datetime.now(
                 timezone.utc
             ).replace(
@@ -243,6 +253,35 @@ class SyncService:
         except Exception:
             db.session.rollback()
             raise
+
+    @staticmethod
+    def _remove_unused_classic_champions():
+        """
+        Remove League Classic champions that no Mastery record uses.
+
+        Earlier synchronizations stored Classic records before they were
+        excluded; without this they would stay on the Missing metadata page.
+        """
+
+        classic_champions = Champion.query.filter(
+            Champion.riot_champion_id.between(
+                ChampionService.CLASSIC_CHAMPION_ID_MINIMUM,
+                ChampionService.CLASSIC_CHAMPION_ID_MAXIMUM,
+            )
+        ).all()
+
+        for champion in classic_champions:
+            is_used = (
+                ChampionMastery.query.filter_by(
+                    champion_id=champion.id
+                ).first()
+                is not None
+            )
+
+            if not is_used:
+                db.session.delete(
+                    champion
+                )
 
     def sync_account_and_mastery(
         self,
