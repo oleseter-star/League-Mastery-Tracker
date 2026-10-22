@@ -1,8 +1,41 @@
 # Match history and composition statistics
 
-Status: design and backend in progress. No user interface yet. The probe
-(`probe_match_history.py`) has not been run against real accounts, so the
-volume assumptions below are still estimates.
+Status: backend and a command-line tool are implemented; no application
+pages yet. The probe (`probe_match_history.py`) has not been run against
+real accounts, so the volume assumptions below are still estimates.
+
+Implementation:
+
+* tables: `Match`, `MatchParticipant`, `MatchImportState` in
+  `application/database/models.py`;
+* Riot calls: `RiotService.get_match_ids` and `get_match`, rate-limited by
+  `application/services/riot_rate_limiter.py`;
+* import: `application/services/match_import_service.py`;
+* statistics: `application/services/match_statistics_service.py`;
+* command line: `match_history.py`.
+
+## Command-line use
+
+Close the application before importing; statistics can run while it is
+open. The import uses the API key saved in Settings, or `--ask-key` for a
+key entered for one run.
+
+```powershell
+python match_history.py import --ask-key
+python match_history.py import --account "Main#EUW" --max-games 200
+python match_history.py stats summary
+python match_history.py stats persons
+python match_history.py stats person-champions --person Ole
+python match_history.py stats positions --person Ole --min-games 5
+python match_history.py stats allies --person Ole --champion Lux
+python match_history.py stats lanes --person Ole --champion Lux --position mid
+python match_history.py stats pairs
+```
+
+Every table shows games, wins and losses, win rate, and a score: the
+lower bound of the 95% confidence interval for the win rate, used for
+sorting. `--min-games` (default 3), `--queue`, `--since`, and `--until`
+narrow the games counted.
 
 ## Goal
 
@@ -175,7 +208,7 @@ can take far longer than a browser request should.
 1. Probe real accounts (`probe_match_history.py`). Done; waiting for a run.
 2. Backend: tables, Riot match calls with rate limiting, the import service, and
    statistics service, plus a command-line tool to import and print
-   statistics. In progress on this branch.
+   statistics. Implemented; waiting for a run against real accounts.
 3. Application: background import with progress and the chosen pages.
 4. Champion classes and team-style views.
 5. Optional: patch filter, JSON export of match data, League Classic view.

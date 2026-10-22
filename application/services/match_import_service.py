@@ -18,8 +18,13 @@ class MatchImportError(RuntimeError):
     """
     Raised when a match history import stops early.
 
-    Games imported before the failure stay committed.
+    Games imported before the failure stay committed. key_rejected is
+    set when Riot refused the API key, which affects every account.
     """
+
+    def __init__(self, message, key_rejected=False):
+        super().__init__(message)
+        self.key_rejected = key_rejected
 
 
 class MatchImportService:
@@ -130,7 +135,8 @@ class MatchImportService:
         except requests.RequestException as error:
             db.session.rollback()
             raise MatchImportError(
-                self._describe_request_error(error)
+                self._describe_request_error(error),
+                key_rejected=self._is_key_error(error),
             ) from error
 
         except Exception:
@@ -185,7 +191,7 @@ class MatchImportService:
                     "error": str(error),
                 })
 
-                if self._is_key_error(error.__cause__):
+                if error.key_rejected:
                     break
 
         return results
