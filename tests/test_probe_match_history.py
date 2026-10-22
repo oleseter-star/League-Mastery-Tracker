@@ -12,6 +12,10 @@ import probe_match_history as probe
 
 API_KEY = "RGAPI-synthetic-probe-key"
 
+# A ranked queue the app does not name, standing in for Ranked 5s.
+UNNAMED_RANKED_QUEUE = 4242
+RANKED_QUEUE_IDS = {420, 440, UNNAMED_RANKED_QUEUE}
+
 
 class FakeResponse:
     def __init__(self, status_code, payload=None, headers=None):
@@ -52,11 +56,13 @@ class FakeRiot:
         if path.endswith("/ids"):
             puuid = path.split("/by-puuid/")[1].split("/")[0]
             queue = params.get("queue")
+            ranked_only = params.get("type") == "ranked"
             ids = [
                 match["metadata"]["matchId"]
                 for match in self._newest_first()
                 if puuid in match["metadata"]["participants"]
                 and (queue is None or match["info"]["queueId"] == queue)
+                and (not ranked_only or match["info"]["queueId"] in RANKED_QUEUE_IDS)
             ]
             start = params["start"]
             return FakeResponse(200, ids[start:start + params["count"]])
@@ -85,6 +91,7 @@ def build_match(number, queue_id, created_ms, players):
         "info": {
             "queueId": queue_id,
             "gameCreation": created_ms,
+            "gameVersion": "16.18.712.3456",
             "participants": [
                 {
                     "puuid": puuid,
@@ -113,6 +120,8 @@ def build_world():
         build_match(4, 450, JAN_2025_MS + 3 * DAY_MS, [("p-main", "Lux", "", True), ("p-other", "Zed", "", False)]),
         # Alt alone in a League Classic style queue.
         build_match(5, 2400, JAN_2025_MS + 4 * DAY_MS, [("p-alt", "Lux", "MIDDLE", False)]),
+        # Alt in a ranked queue the app does not name yet.
+        build_match(6, UNNAMED_RANKED_QUEUE, JAN_2025_MS + 5 * DAY_MS, [("p-alt", "Lux", "MIDDLE", True)]),
     ]
     accounts = {("Main", "EUW"): "p-main", ("Alt", "EUW"): "p-alt", ("Friend", "EUW"): "p-friend"}
     return FakeRiot(accounts, matches)
@@ -304,13 +313,27 @@ class ProbeRunTests(unittest.TestCase):
         self.assertEqual(main["oldest_game"], "2025-01-01")
         self.assertEqual(main["newest_game"], "2025-01-04")
         self.assertEqual(main["queues"]["Ranked Solo/Duo"], {"games": 2, "capped": False, "oldest_game": "2025-01-01"})
-        self.assertEqual(main["other_queue_games"], 0)
+        self.assertEqual(main["ranked_games"], 2)
+        self.assertEqual(main["games_not_imported"], 2)
+        self.assertEqual(main["other_ranked"], {"games": 0, "sampled_queue_ids": {}})
         self.assertEqual(main["sample"]["champions"], {"Lux": 3, "Twitch": 1})
+        self.assertEqual(main["sample"]["patches"], {"26.18": 4})
         self.assertEqual(main["sample"]["positions"]["(none)"], 1)
-        self.assertEqual(main["sample"]["position_coverage"]["ARAM"], "0/2")
-        self.assertEqual(accounts["Alt#EUW"]["sample"]["queues"], {"queue 2400": 1})
-        self.assertEqual(accounts["Alt#EUW"]["other_queue_games"], 1)
+        self.assertEqual(main["sample"]["position_coverage"]["Queue 450"], "0/2")
+        self.assertEqual(accounts["Alt#EUW"]["sample"]["queues"], {"Queue 4242": 1, "Queue 2400": 1})
+        self.assertEqual(accounts["Alt#EUW"]["games_not_imported"], 1)
         self.assertEqual(accounts["Gone#EUW"]["status"], "not_found")
+
+    def test_probe_finds_the_queue_id_of_other_ranked_games(self):
+        self.run_probe()
+        accounts = {result["riot_id"]: result for result in self.summary()["accounts"]}
+
+        self.assertEqual(accounts["Alt#EUW"]["ranked_games"], 1)
+        self.assertEqual(accounts["Alt#EUW"]["other_ranked"], {"games": 1, "sampled_queue_ids": {"4242": 1}})
+        self.assertIn(
+            "Other ranked games: 1 (queue ID 4242; probably Ranked 5s",
+            (self.output / "report.txt").read_text(encoding="utf-8"),
+        )
 
     def test_probe_groups_accounts_by_person_and_counts_shared_games(self):
         self.run_probe()
@@ -319,7 +342,7 @@ class ProbeRunTests(unittest.TestCase):
         main_and_friend = together[frozenset({"Main#EUW", "Friend#EUW"})]
         main_and_alt = together[frozenset({"Main#EUW", "Alt#EUW"})]
 
-        self.assertEqual(summary["games_per_person"], {"Friend": 3, "Ole": 5})
+        self.assertEqual(summary["games_per_person"], {"Friend": 3, "Ole": 6})
         self.assertEqual(main_and_friend["games"], 3)
         self.assertFalse(main_and_friend["same_person"])
         self.assertTrue(main_and_alt["same_person"])
@@ -337,7 +360,7 @@ class ProbeRunTests(unittest.TestCase):
         self.run_probe()
         match_files = sorted(path.name for path in (self.output / "matches").iterdir())
 
-        self.assertEqual(match_files, [f"EUW1_{n}.json" for n in range(1, 6)])
+        self.assertEqual(match_files, [f"EUW1_{n}.json" for n in range(1, 7)])
 
         match_requests = [url for url, _, _ in self.riot.requests if "/matches/EUW1_" in url]
         self.assertEqual(len(match_requests), len(set(match_requests)))

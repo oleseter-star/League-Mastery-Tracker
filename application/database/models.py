@@ -253,6 +253,13 @@ class Match(db.Model):
         nullable=True
     )
 
+    # "major.minor" of game_version, for example 16.18 (announced as 26.18).
+    patch = db.Column(
+        db.String(10),
+        nullable=True,
+        index=True
+    )
+
     game_creation = db.Column(
         db.DateTime,
         nullable=False

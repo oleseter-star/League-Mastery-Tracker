@@ -51,7 +51,8 @@ class MatchStatisticsServiceTests(unittest.TestCase):
 
         # G1 and G2: Ole (Main) with Friend. G3: Ole (Alt) with Buddy.
         # G4: Ole alone in ARAM. G5: a remake. G6: Friend against Buddy.
-        self.add_game(1, 420, [
+        # G1 is on patch 16.9, the rest on 16.18.
+        self.add_game(1, 420, patch="16.9", participants=[
             (self.main, LUX, 100, "MIDDLE", True),
             (self.friend_account, TWITCH, 100, "BOTTOM", True),
             (None, ZED, 200, "MIDDLE", False),
@@ -91,11 +92,12 @@ class MatchStatisticsServiceTests(unittest.TestCase):
             platform_region="EUW1",
         )
 
-    def add_game(self, number, queue_id, participants, duration=1800):
+    def add_game(self, number, queue_id, participants, duration=1800, patch="16.18"):
         match = Match(
             riot_match_id=f"EUW1_{number}",
             platform_id="EUW1",
             queue_id=queue_id,
+            patch=patch,
             game_creation=JAN_1 + timedelta(days=number),
             game_duration_seconds=duration,
             imported_at=JAN_1 + timedelta(days=30),
@@ -225,6 +227,28 @@ class MatchStatisticsServiceTests(unittest.TestCase):
         self.assertEqual(ole["games_per_queue"], {400: 1, 420: 2, 450: 1})
         self.assertEqual(ole["first_game"], JAN_1 + timedelta(days=1))
         self.assertEqual(ole["last_game"], JAN_1 + timedelta(days=4))
+
+    def test_patch_filter_selects_one_or_several_patches(self):
+        ole = (self.ole.id,)
+
+        one = self.service.person_overview(MatchStatisticsFilter(person_ids=ole, patches=("16.9",)))
+        both = self.service.person_overview(MatchStatisticsFilter(person_ids=ole, patches=("16.9", "16.18")))
+        none = self.service.person_overview(MatchStatisticsFilter(person_ids=ole, patches=("15.1",)))
+
+        self.assertEqual(self.games_and_wins(one, person_name="Ole"), (1, 1))
+        self.assertEqual(self.games_and_wins(both, person_name="Ole"), (4, 3))
+        self.assertEqual(none, [])
+
+    def test_patch_results_are_newest_patch_first(self):
+        rows = self.service.patch_results(MatchStatisticsFilter(person_ids=(self.ole.id,)))
+
+        self.assertEqual([(row["patch"], row["games"], row["wins"]) for row in rows], [("16.18", 3, 2), ("16.9", 1, 1)])
+
+    def test_summary_and_available_patches_sort_numerically(self):
+        summary = self.service.summary()
+
+        self.assertEqual(summary["games_per_patch"], {"16.18": 4, "16.9": 1})
+        self.assertEqual(MatchStatisticsService.available_patches(), ["16.18", "16.9"])
 
     def test_deleted_person_no_longer_counts(self):
         PersonService.delete_person(self.friend)

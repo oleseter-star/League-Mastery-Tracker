@@ -4,12 +4,15 @@ Uses the application's data directory and saved Riot API key until the
 application has its own match history pages. Close League Mastery Tracker
 before importing; statistics can be printed while it is open.
 
+Only ranked games and Summoner's Rift Clash are imported.
+
     python match_history.py import
     python match_history.py import --account "Main#EUW" --max-games 200 --ask-key
     python match_history.py stats summary
-    python match_history.py stats champions --person Ole
-    python match_history.py stats allies --person Ole --champion Lux
+    python match_history.py stats champions --person Ole --mode solo
+    python match_history.py stats allies --person Ole --champion Lux --patch 26.12-26.18
     python match_history.py stats lanes --person Ole --champion Lux --position mid
+    python match_history.py stats patches --person Ole --champion Lux
 """
 
 import argparse
@@ -21,6 +24,13 @@ from application.database.database import db
 from application.database.models import Champion, Person, RiotAccount
 from application.services.application_instance_service import (
     ApplicationInstanceService,
+)
+from application.services.match_catalog import (
+    MODE_QUEUE_IDS,
+    display_patch,
+    parse_patch_selection,
+    queue_id_for_mode,
+    queue_label,
 )
 from application.services.match_import_service import (
     MatchImportError,
@@ -47,15 +57,6 @@ POSITIONS = {
     "utility": "UTILITY",
 }
 
-QUEUE_NAMES = {
-    400: "Normal Draft",
-    420: "Ranked Solo/Duo",
-    430: "Normal Blind",
-    440: "Ranked Flex",
-    450: "ARAM",
-    490: "Quickplay",
-}
-
 # Statistics view name -> (service method, label columns, keyword arguments)
 VIEWS = {
     "persons": ("person_overview", ("person_name",), {}),
@@ -66,6 +67,7 @@ VIEWS = {
     "enemies": ("enemy_champions", ("champion",), {}),
     "lanes": ("enemy_champions", ("champion",), {"lane_opponents_only": True}),
     "pairs": ("person_pairs", ("person_name", "other_person_name"), {}),
+    "patches": ("patch_results", ("patch",), {}),
 }
 
 COLUMN_TITLES = {
@@ -73,6 +75,7 @@ COLUMN_TITLES = {
     "other_person_name": "With",
     "champion": "Champion",
     "team_position": "Position",
+    "patch": "Patch",
 }
 
 # Riot development keys allow 100 requests per two minutes.
@@ -106,7 +109,7 @@ def build_argument_parser():
     import_parser = commands.add_parser("import", help="Download new games from Riot.")
     import_parser.add_argument("--account", action="append", default=[], metavar="NAME#TAG", help="Riot account to import; repeat for several. Default: every account.")
     import_parser.add_argument("--max-games", type=int, help="Most new games to download per account in this run.")
-    import_parser.add_argument("--queue", type=int, action="append", default=[], metavar="QUEUE_ID", help="Queue to import; repeat for several. Default: Solo/Duo, Flex, Draft, Blind, Quickplay, ARAM.")
+    import_parser.add_argument("--queue", type=int, action="append", default=[], metavar="QUEUE_ID", help="Import only this queue; repeat for several. Default: every ranked queue and Summoner's Rift Clash.")
     import_parser.add_argument("--ask-key", action="store_true", help="Enter a Riot API key for this run instead of the saved key.")
 
     stats_parser = commands.add_parser("stats", help="Print statistics from stored games.")
@@ -115,7 +118,9 @@ def build_argument_parser():
     stats_parser.add_argument("--account", action="append", default=[], metavar="NAME#TAG", help="Limit to Riot accounts.")
     stats_parser.add_argument("--champion", help="Only games where the Person played this champion.")
     stats_parser.add_argument("--position", choices=sorted(POSITIONS), help="Only games in this position.")
-    stats_parser.add_argument("--queue", type=int, action="append", default=[], metavar="QUEUE_ID", help="Only these queues.")
+    stats_parser.add_argument("--mode", action="append", default=[], metavar="MODE", help=f"Only this mode: {', '.join(sorted(MODE_QUEUE_IDS))}; repeat to combine. Default: all.")
+    stats_parser.add_argument("--queue", type=int, action="append", default=[], metavar="QUEUE_ID", help="Only this queue ID, for queues without a mode name.")
+    stats_parser.add_argument("--patch", action="append", default=[], metavar="PATCH", help="Only these patches: 26.18, a list (26.17,26.18), or a range (26.12-26.18); repeat to combine.")
     stats_parser.add_argument("--since", type=parse_date, help="Only games on or after this date (YYYY-MM-DD).")
     stats_parser.add_argument("--until", type=parse_date, help="Only games before this date (YYYY-MM-DD).")
     stats_parser.add_argument("--min-games", type=int, default=3, help="Hide rows with fewer games (default 3).")
@@ -203,7 +208,13 @@ def run_import(arguments, log, riot_service, read_key, instance_service):
             raise CommandError("No Riot accounts to import. Add accounts in League Mastery Tracker first.")
 
         service = MatchImportService(riot_service=riot_service)
-        queue_ids = tuple(arguments.queue) or MatchImportService.DEFAULT_QUEUE_IDS
+
+        if arguments.queue:
+            queue_ids, match_types = tuple(arguments.queue), ()
+        else:
+            queue_ids = MatchImportService.DEFAULT_QUEUE_IDS
+            match_types = MatchImportService.DEFAULT_MATCH_TYPES
+
         failed = False
 
         for account in accounts:
@@ -223,6 +234,7 @@ def run_import(arguments, log, riot_service, read_key, instance_service):
                     account.id,
                     max_new_matches=arguments.max_games,
                     queue_ids=queue_ids,
+                    match_types=match_types,
                     progress=progress,
                 )
             except MatchImportError as error:
@@ -265,10 +277,31 @@ def describe_import_result(label, result):
 
 
 def run_stats(arguments, log):
+    service = MatchStatisticsService()
+
+    try:
+        queue_ids = tuple(
+            dict.fromkeys(
+                [queue_id_for_mode(mode) for mode in arguments.mode]
+                + list(arguments.queue)
+            )
+        )
+        available_patches = service.available_patches()
+        patches = parse_patch_selection(arguments.patch, available_patches)
+    except ValueError as error:
+        raise CommandError(str(error)) from None
+
+    if arguments.patch and not set(patches) & set(available_patches):
+        stored = ", ".join(display_patch(patch) for patch in available_patches[:8]) or "none"
+        raise CommandError(
+            f"No stored games are on the selected patches. Newest stored patches: {stored}."
+        )
+
     filters = MatchStatisticsFilter(
         person_ids=tuple(person.id for person in find_persons(arguments.person)),
         riot_account_ids=tuple(account.id for account in find_accounts(arguments.account)),
-        queue_ids=tuple(arguments.queue),
+        queue_ids=queue_ids,
+        patches=patches,
         start=arguments.since,
         end=arguments.until,
         team_position=POSITIONS.get(arguments.position) if arguments.position else None,
@@ -276,7 +309,6 @@ def run_stats(arguments, log):
         min_games=max(1, arguments.min_games),
         include_remakes=arguments.include_remakes,
     )
-    service = MatchStatisticsService()
 
     if arguments.view == "summary":
         log(format_summary(service.summary(filters)))
@@ -301,8 +333,15 @@ def format_summary(summary):
         f"From {summary['first_game']:%Y-%m-%d} to {summary['last_game']:%Y-%m-%d}",
     ]
 
+    lines.append("By mode:")
+
     for queue_id, games in summary["games_per_queue"].items():
-        lines.append(f"  {QUEUE_NAMES.get(queue_id, f'Queue {queue_id}'):<17} {games:>6}")
+        lines.append(f"  {queue_label(queue_id):<17} {games:>6}")
+
+    lines.append("By patch:")
+
+    for patch, games in summary["games_per_patch"].items():
+        lines.append(f"  {display_patch(patch):<17} {games:>6}")
 
     return "\n".join(lines)
 
@@ -314,6 +353,9 @@ def format_table(rows, label_columns):
     def label(row, column):
         if column == "champion":
             return row["champion_name"] or f"Champion {row['riot_champion_id']}"
+
+        if column == "patch":
+            return display_patch(row["patch"])
 
         return str(row[column])
 

@@ -26,19 +26,24 @@ class FakeHTTPResponse:
 
 
 class FakeRiotService:
-    """Two ranked games for Main, one shared with Friend."""
+    """
+    Two Solo/Duo games for Main, one shared with Friend.
+
+    Game 1 is on patch 16.17 (26.17), game 2 on 16.18 (26.18).
+    """
 
     def __init__(self, reject_key=False):
         self.reject_key = reject_key
         self.calls = 0
 
-    def get_match_ids(self, puuid, platform_region, start=0, count=100, queue=None):
+    def get_match_ids(self, puuid, platform_region, start=0, count=100, queue=None, match_type=None):
         self.calls += 1
+        self.listings = getattr(self, "listings", []) + [queue or match_type]
 
         if self.reject_key:
             raise requests.HTTPError("HTTP 403", response=FakeHTTPResponse(403))
 
-        if queue != 420 or start:
+        if match_type != "ranked" or start:
             return []
 
         return {"main-puuid": ["EUW1_2", "EUW1_1"], "friend-puuid": ["EUW1_1"]}.get(puuid, [])
@@ -56,6 +61,7 @@ class FakeRiotService:
                 "platformId": "EUW1",
                 "queueId": 420,
                 "gameCreation": JAN_2025_MS + number * 86_400_000,
+                "gameVersion": f"16.{16 + number}.712.3456",
                 "gameDuration": 1800,
                 "gameEndTimestamp": JAN_2025_MS,
                 "participants": participants,
@@ -186,6 +192,63 @@ class MatchHistoryCliTests(unittest.TestCase):
         self.run_cli("stats", "summary")
         self.assertIn("Games: 2", self.output())
         self.assertIn("Ranked Solo/Duo        2", self.output())
+        self.assertIn("26.18                  1", self.output())
+        self.assertIn("26.17                  1", self.output())
+
+    def test_import_lists_ranked_games_and_clash_by_default(self):
+        riot = FakeRiotService()
+
+        self.run_cli("import", "--account", "Main#EUW", riot_service=riot)
+
+        self.assertEqual(riot.listings, [700, "ranked"])
+
+        explicit = FakeRiotService()
+        self.run_cli("import", "--account", "Main#EUW", "--queue", "440", riot_service=explicit)
+        self.assertEqual(explicit.listings, [440])
+
+    def test_stats_filter_by_mode_and_patches(self):
+        self.run_cli("import")
+        self.stdout.truncate(0)
+        self.stdout.seek(0)
+
+        self.run_cli("stats", "champions", "--person", "Ole", "--mode", "solo", "--min-games", "1")
+        self.assertIn("Lux           2  2-0", self.output())
+
+        self.run_cli("stats", "champions", "--person", "Ole", "--mode", "flex", "--min-games", "1")
+        self.assertIn("No results", self.output())
+
+        self.stdout.truncate(0)
+        self.stdout.seek(0)
+        self.run_cli("stats", "champions", "--person", "Ole", "--patch", "26.18", "--min-games", "1")
+        self.assertIn("Lux           1  1-0", self.output())
+
+        self.stdout.truncate(0)
+        self.stdout.seek(0)
+        self.run_cli("stats", "champions", "--person", "Ole", "--patch", "26.17-26.18", "--min-games", "1")
+        self.assertIn("Lux           2  2-0", self.output())
+
+    def test_patches_view_lists_newest_patch_first(self):
+        self.run_cli("import")
+        self.stdout.truncate(0)
+        self.stdout.seek(0)
+
+        self.run_cli("stats", "patches", "--person", "Ole", "--champion", "Lux", "--min-games", "1")
+        output = self.output()
+
+        self.assertLess(output.index("26.18"), output.index("26.17"))
+        self.assertIn("Patch  Games  W-L", output)
+
+    def test_unknown_mode_patch_and_ranked_5s_are_explained(self):
+        self.run_cli("import")
+
+        self.assertEqual(self.run_cli("stats", "persons", "--mode", "5s"), 2)
+        self.assertIn("Ranked 5s queue ID is not known yet", self.output())
+
+        self.assertEqual(self.run_cli("stats", "persons", "--patch", "latest"), 2)
+        self.assertIn("Expected a patch such as 26.18", self.output())
+
+        self.assertEqual(self.run_cli("stats", "persons", "--patch", "24.1"), 2)
+        self.assertIn("No stored games are on the selected patches", self.output())
 
     def test_stats_hide_small_samples_and_explain_unknown_names(self):
         self.run_cli("import")

@@ -14,6 +14,7 @@ from application.database.models import (
     Person,
     RiotAccount,
 )
+from application.services.match_catalog import patch_sort_key
 
 
 @dataclass(frozen=True)
@@ -22,12 +23,14 @@ class MatchStatisticsFilter:
     Selects the games that statistics count.
 
     Empty tuples mean "all". Champion and position filters apply to the
-    tracked Person's side of each game.
+    tracked Person's side of each game. Patches use the stored form, for
+    example "16.18".
     """
 
     person_ids: tuple = ()
     riot_account_ids: tuple = ()
     queue_ids: tuple = ()
+    patches: tuple = ()
     start: Optional[datetime] = None
     end: Optional[datetime] = None
     team_position: Optional[str] = None
@@ -132,6 +135,27 @@ class MatchStatisticsService:
                 filters,
                 ("person_id", "person_name", "riot_champion_id", "team_position"),
             )
+        )
+
+    def patch_results(self, filters=MatchStatisticsFilter()):
+        """
+        Results per patch, newest patch first.
+        """
+
+        tracked = aliased(MatchParticipant, name="tracked")
+
+        query = self._tracked_query(
+            tracked,
+            filters,
+            Match.patch,
+        ).group_by(Match.patch)
+
+        rows = self._rows(query, filters, ("patch",))
+
+        return sorted(
+            rows,
+            key=lambda row: patch_sort_key(row["patch"] or "0.0"),
+            reverse=True,
         )
 
     def ally_champions(self, filters=MatchStatisticsFilter()):
@@ -260,7 +284,7 @@ class MatchStatisticsService:
         tracked = aliased(MatchParticipant, name="tracked")
 
         base = self._apply_filters(
-            db.session.query(Match.id, Match.queue_id, Match.game_creation)
+            db.session.query(Match.id, Match.queue_id, Match.patch, Match.game_creation)
             .select_from(tracked)
             .join(Match, tracked.match_id == Match.id)
             .join(RiotAccount, tracked.riot_account_id == RiotAccount.id),
@@ -274,6 +298,12 @@ class MatchStatisticsService:
             .all()
         )
 
+        games_per_patch = dict(
+            db.session.query(base.c.patch, func.count())
+            .group_by(base.c.patch)
+            .all()
+        )
+
         first_game, last_game = db.session.query(
             func.min(base.c.game_creation),
             func.max(base.c.game_creation),
@@ -282,9 +312,30 @@ class MatchStatisticsService:
         return {
             "games": sum(games_per_queue.values()),
             "games_per_queue": dict(sorted(games_per_queue.items())),
+            "games_per_patch": dict(
+                sorted(
+                    games_per_patch.items(),
+                    key=lambda item: patch_sort_key(item[0] or "0.0"),
+                    reverse=True,
+                )
+            ),
             "first_game": first_game,
             "last_game": last_game,
         }
+
+    @staticmethod
+    def available_patches():
+        """
+        Return every patch with stored games, newest first.
+        """
+
+        patches = [
+            patch
+            for (patch,) in db.session.query(Match.patch).distinct()
+            if patch is not None
+        ]
+
+        return sorted(patches, key=patch_sort_key, reverse=True)
 
     @classmethod
     def wilson_lower_bound(cls, wins, games):
@@ -334,6 +385,9 @@ class MatchStatisticsService:
     def _apply_match_filters(self, query, filters):
         if filters.queue_ids:
             query = query.filter(Match.queue_id.in_(filters.queue_ids))
+
+        if filters.patches:
+            query = query.filter(Match.patch.in_(filters.patches))
 
         if filters.start is not None:
             query = query.filter(Match.game_creation >= filters.start)

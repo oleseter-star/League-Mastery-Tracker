@@ -31,18 +31,21 @@ import requests
 from application.services.application_data_service import (
     ApplicationDataService,
 )
+from application.services.match_catalog import (
+    QUEUE_NAMES,
+    RANKED_FLEX,
+    RANKED_SOLO_DUO,
+    display_patch,
+    patch_from_game_version,
+    queue_label,
+)
 from application.services.riot_rate_limiter import RiotRateLimiter
 from application.services.riot_service import RiotService
 
 
-QUEUE_NAMES = {
-    400: "Normal Draft",
-    420: "Ranked Solo/Duo",
-    430: "Normal Blind",
-    440: "Ranked Flex",
-    450: "ARAM",
-    490: "Quickplay",
-}
+# Ranked games outside Solo/Duo and Flex are fetched to read their queue
+# ID, which is how the probe finds the Ranked 5s queue.
+OTHER_RANKED_SAMPLE_SIZE = 3
 
 MATCH_ID_PAGE_SIZE = 100
 DEFAULT_MAX_MATCH_IDS = 2000
@@ -230,7 +233,7 @@ def read_accounts_from_database(database_path):
     ]
 
 
-def list_match_ids(client, region, puuid, max_ids, queue=None):
+def list_match_ids(client, region, puuid, max_ids, queue=None, match_type=None):
     """Return match IDs newest first, following pages up to max_ids."""
 
     match_ids = []
@@ -241,6 +244,9 @@ def list_match_ids(client, region, puuid, max_ids, queue=None):
 
         if queue is not None:
             params["queue"] = queue
+
+        if match_type is not None:
+            params["type"] = match_type
 
         page = client.get_json(
             f"https://{region}.api.riotgames.com/lol/match/v5/matches/"
@@ -279,16 +285,13 @@ def game_date(match):
     return datetime.fromtimestamp(created / 1000, tz=timezone.utc).date().isoformat()
 
 
-def queue_label(queue_id):
-    return QUEUE_NAMES.get(queue_id, f"queue {queue_id}")
-
-
 def summarize_sample(matches, puuid):
     """Describe the tracked Riot account's games in a sample of match details."""
 
     queues = Counter()
     positions = Counter()
     champions = Counter()
+    patches = Counter()
     wins = 0
     games = 0
     position_coverage = {}
@@ -304,6 +307,7 @@ def summarize_sample(matches, puuid):
         games += 1
         queue = queue_label(info.get("queueId"))
         queues[queue] += 1
+        patches[display_patch(patch_from_game_version(info.get("gameVersion")))] += 1
         positions[tracked_participant.get("teamPosition") or "(none)"] += 1
         champions[tracked_participant.get("championName") or str(tracked_participant.get("championId"))] += 1
         wins += bool(tracked_participant.get("win"))
@@ -321,6 +325,7 @@ def summarize_sample(matches, puuid):
         "queues": dict(queues.most_common()),
         "positions": dict(positions.most_common()),
         "champions": dict(champions.most_common()),
+        "patches": dict(patches.most_common()),
         "position_coverage": {
             queue: f"{covered}/{total}"
             for queue, (covered, total) in position_coverage.items()
@@ -388,8 +393,28 @@ def probe_account(client, account, max_match_ids, detail_count, match_cache, log
             "oldest_game": game_date(oldest_in_queue),
         }
 
+    log(f"{label}: listing all ranked match IDs")
+    ranked_ids = list_match_ids(client, region, puuid, max_match_ids, match_type="ranked")
+    named_ranked = set(queue_ids[RANKED_SOLO_DUO]) | set(queue_ids[RANKED_FLEX])
+    other_ranked = [match_id for match_id in ranked_ids if match_id not in named_ranked]
+    other_ranked_queues = Counter(
+        (fetch_match(client, region, match_id, match_cache) or {}).get("info", {}).get("queueId")
+        for match_id in other_ranked[:OTHER_RANKED_SAMPLE_SIZE]
+    )
+
+    result["ranked_games"] = len(ranked_ids)
+    result["other_ranked"] = {
+        "games": len(other_ranked),
+        "sampled_queue_ids": {
+            str(queue_id): count
+            for queue_id, count in other_ranked_queues.items()
+            if queue_id is not None
+        },
+    }
+
     if not result["capped"]:
-        result["other_queue_games"] = len(all_ids) - sum(len(ids) for ids in queue_ids.values())
+        imported = set(ranked_ids) | {match_id for ids in queue_ids.values() for match_id in ids}
+        result["games_not_imported"] = len(set(all_ids) - imported)
 
     result["sample"] = summarize_sample(recent_matches, puuid)
 
@@ -452,13 +477,24 @@ def format_report(summary):
         for queue, details in result["queues"].items():
             lines.append(f"    {queue:<17} {details['games']:>6}  {details['oldest_game'] or '-'}")
 
-        if "other_queue_games" in result:
-            lines.append(f"    {'Other queues':<17} {result['other_queue_games']:>6}")
+        lines.append(f"    {'All ranked':<17} {result['ranked_games']:>6}")
+
+        other_ranked = result["other_ranked"]
+
+        if other_ranked["games"]:
+            queue_ids = ", ".join(other_ranked["sampled_queue_ids"]) or "unknown"
+            lines.append(
+                f"  Other ranked games: {other_ranked['games']} (queue ID {queue_ids}; "
+                "probably Ranked 5s, tell Claude this number)"
+            )
+
+        if "games_not_imported" in result:
+            lines.append(f"  Not imported (normals, ARAM, other modes): {result['games_not_imported']}")
 
         sample = result["sample"]
         lines.append(f"  Recent sample: {sample['games']} games, {sample['wins']} wins")
 
-        for title, key in (("Queues", "queues"), ("Positions", "positions"), ("Champions", "champions")):
+        for title, key in (("Queues", "queues"), ("Patches", "patches"), ("Positions", "positions"), ("Champions", "champions")):
             values = ", ".join(f"{name} {count}" for name, count in list(sample[key].items())[:8])
             lines.append(f"    {title}: {values or '-'}")
 

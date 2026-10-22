@@ -12,6 +12,7 @@ Implementation:
   `application/services/riot_rate_limiter.py`;
 * import: `application/services/match_import_service.py`;
 * statistics: `application/services/match_statistics_service.py`;
+* queue and patch names: `application/services/match_catalog.py`;
 * command line: `match_history.py`.
 
 ## Command-line use
@@ -24,18 +25,24 @@ key entered for one run.
 python match_history.py import --ask-key
 python match_history.py import --account "Main#EUW" --max-games 200
 python match_history.py stats summary
-python match_history.py stats persons
-python match_history.py stats person-champions --person Ole
+python match_history.py stats persons --mode solo
+python match_history.py stats person-champions --person Ole --mode solo --mode flex
 python match_history.py stats positions --person Ole --min-games 5
-python match_history.py stats allies --person Ole --champion Lux
+python match_history.py stats allies --person Ole --champion Lux --patch 26.12-26.18
 python match_history.py stats lanes --person Ole --champion Lux --position mid
-python match_history.py stats pairs
+python match_history.py stats patches --person Ole --champion Lux
+python match_history.py stats pairs --mode clash
 ```
 
 Every table shows games, wins and losses, win rate, and a score: the
 lower bound of the 95% confidence interval for the win rate, used for
-sorting. `--min-games` (default 3), `--queue`, `--since`, and `--until`
-narrow the games counted.
+sorting. These options narrow the games counted:
+
+* `--mode solo`, `flex`, or `clash`, repeated to combine; Ranked 5s gets a
+  mode name once its queue ID is known, and `--queue` selects it until then;
+* `--patch 26.18`, a list (`26.17,26.18`), or a range (`26.12-26.18`),
+  repeated to combine; `16.18` works as well as `26.18`;
+* `--min-games` (default 3), `--since`, and `--until`.
 
 ## Goal
 
@@ -53,7 +60,8 @@ across all of their accounts, and for groups of friends:
 Match-V5 gives two calls:
 
 * `GET /lol/match/v5/matches/by-puuid/{puuid}/ids` returns match IDs newest
-  first, at most 100 per call, filterable by queue and time.
+  first, at most 100 per call, filterable by queue, by type (for example
+  `ranked`, which covers every ranked queue), and by time.
 * `GET /lol/match/v5/matches/{matchId}` returns one game: queue, creation
   time, duration, game version, and all ten participants with `puuid`,
   Riot ID, `championId`, `teamId`, `teamPosition`, `win`, KDA, and more.
@@ -73,10 +81,14 @@ Constraints that shape the design:
   including the ones inside stored matches, must therefore not be the only
   link between a game and a tracked Riot account. The probe reports whether
   stored PUUIDs still match the current key.
-* **Positions.** `teamPosition` is set in Summoner's Rift queues and empty in
-  ARAM, so position-based views only use Summoner's Rift games.
-* **League Classic.** Classic games are outside the 2.0 scope, matching the
-  Champion Mastery exclusion. They are not imported.
+* **Patches.** Each game records its game version, for example
+  `16.18.712.3456`. Game versions are 15.x for 2025 and 16.x for 2026, while
+  Riot announces the same patches as 25.x and 26.x (the first 2025 patches
+  as 25.S1.1 and so on). Patches are stored as `16.18` and shown as `26.18`.
+* **Scope.** Only ranked games and Summoner's Rift Clash are imported:
+  Ranked Solo/Duo (420), Ranked Flex (440), Ranked 5s (weekend premade
+  ranked, queue ID not yet known), and Clash (700). Normals, ARAM, League
+  Classic, and other modes are not imported; casual modes may follow later.
 
 ## Data model
 
@@ -87,7 +99,8 @@ Three additive tables. Existing tables are not changed.
 | Column | Notes |
 | --- | --- |
 | `riot_match_id` | Unique, for example `EUW1_7212345678`. Not encrypted, so it deduplicates games across accounts and API keys. |
-| `platform_id`, `queue_id`, `game_mode`, `map_id`, `game_version` | Filters for queue and patch. |
+| `platform_id`, `queue_id`, `game_mode`, `map_id`, `game_version` | Filters for mode. |
+| `patch` | `major.minor` of `game_version`, for example `16.18`; indexed for patch filters. |
 | `game_creation`, `game_duration_seconds` | Date filters and remakes. |
 | `raw_data` | The full Match-V5 document, zlib-compressed (about 10 KB per game). Keeps items, runes, and damage available for later features after Riot no longer serves the game. |
 
@@ -136,7 +149,8 @@ For each Riot account, on request only (no automatic network calls):
 
 1. Re-resolve the Riot ID to a PUUID for the current key when the stored
    PUUID is rejected.
-2. Page through match IDs for the imported queues, newest first.
+2. Page through match IDs newest first, for Riot's `ranked` type and for the
+   Clash queue.
 3. Skip IDs already linked to this account. Stop at the first page with only
    known IDs once `history_complete` is set; before that, keep paging to
    backfill older games.
@@ -146,9 +160,11 @@ For each Riot account, on request only (no automatic network calls):
    from a different key.
 5. Commit after each game, so an interrupted import keeps its progress.
 
-Imported queues by default: Ranked Solo/Duo (420), Ranked Flex (440), Normal
-Draft (400), Normal Blind (430), Quickplay (490), and ARAM (450). The probe
-will show whether ARAM is worth its request cost.
+Listing by type rather than by queue ID means Ranked 5s is imported even
+though its queue ID is not known yet. The probe finds that ID: it lists all
+ranked games, removes the Solo/Duo and Flex games, and reads the queue ID
+of a few of the rest. Once known, the ID gets the mode name `5s` in
+`match_catalog.py`.
 
 The import accepts a budget (maximum games per run) and a progress callback.
 That supports both a command-line import and, later, a background import
@@ -160,7 +176,8 @@ Requests share one rate limiter set below the development-key limits, and a
 ## Statistics
 
 All statistics count games, wins, and win rate for the tracked participant.
-Filters: Persons or Riot accounts, queues, date range, and position.
+Filters: Persons or Riot accounts, modes (one or several), patches (one,
+several, or a range), date range, and position.
 
 | View | Grouping |
 | --- | --- |
@@ -171,6 +188,7 @@ Filters: Persons or Riot accounts, queues, date range, and position.
 | With ally champion | Selected champion (optional), ally champion |
 | Against enemy champion | Selected champion (optional), enemy champion |
 | With tracked Persons | Pair of Persons on the same team |
+| Per patch | Patch, newest first, for following a champion or Person over time |
 
 A Person can only appear once per game, so counting participant rows linked
 to any of a Person's accounts counts distinct games.
@@ -215,9 +233,9 @@ can take far longer than a browser request should.
 
 ## Open questions
 
-* Which queues should be imported and shown by default?
-* Should ARAM be imported, given its request cost and lack of positions?
+* What is the Ranked 5s queue ID? The probe reports it.
 * Which interface option, or combination, fits best?
+* Should casual modes (normals, ARAM) be added later as separate views?
 * Should games where no tracked account remains (after deleting a Person)
   be kept or removed?
 * Is a personal API key worth requesting, given it changes PUUIDs once?

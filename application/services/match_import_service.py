@@ -11,6 +11,10 @@ from application.database.models import (
     MatchParticipant,
     RiotAccount,
 )
+from application.services.match_catalog import (
+    CLASH,
+    patch_from_game_version,
+)
 from application.services.riot_service import RiotService
 
 
@@ -36,19 +40,20 @@ class MatchImportService:
     interrupted import keeps its progress.
     """
 
-    # Ranked Solo/Duo, Ranked Flex, Normal Draft, Normal Blind,
-    # Quickplay, and ARAM. League Classic and other modes are excluded.
+    # Riot's "ranked" match type covers every ranked queue, including
+    # Ranked 5s, whose queue ID is not known yet. Summoner's Rift Clash is
+    # not ranked and is listed by its queue. Normals, ARAM, League
+    # Classic, and other modes are not imported.
+    DEFAULT_MATCH_TYPES = (
+        "ranked",
+    )
+
     DEFAULT_QUEUE_IDS = (
-        420,
-        440,
-        400,
-        430,
-        490,
-        450,
+        CLASH,
     )
 
     # Guards against endless paging if Riot keeps returning full pages.
-    MAX_MATCH_IDS_PER_QUEUE = 10000
+    MAX_MATCH_IDS_PER_LISTING = 10000
 
     def __init__(
         self,
@@ -71,11 +76,13 @@ class MatchImportService:
         riot_account_id,
         max_new_matches=None,
         queue_ids=DEFAULT_QUEUE_IDS,
+        match_types=DEFAULT_MATCH_TYPES,
         progress=None,
     ):
         """
         Import new games for one Riot Account.
 
+        Games listed for any of queue_ids or match_types are imported.
         max_new_matches limits how many games are downloaded in this run.
         progress, when given, is called as progress(done, total).
         """
@@ -108,7 +115,7 @@ class MatchImportService:
             new_match_ids, history_reached_end = self._collect_new_match_ids(
                 account,
                 state,
-                tuple(queue_ids),
+                self._listings(queue_ids, match_types),
                 result,
             )
 
@@ -124,7 +131,6 @@ class MatchImportService:
                 outcome = self._import_match(
                     account,
                     riot_match_id,
-                    tuple(queue_ids),
                     tracked_accounts,
                 )
                 result[outcome] += 1
@@ -157,6 +163,7 @@ class MatchImportService:
         self,
         max_new_matches_per_account=None,
         queue_ids=DEFAULT_QUEUE_IDS,
+        match_types=DEFAULT_MATCH_TYPES,
         progress=None,
     ):
         """
@@ -176,6 +183,7 @@ class MatchImportService:
                     account.id,
                     max_new_matches=max_new_matches_per_account,
                     queue_ids=queue_ids,
+                    match_types=match_types,
                     progress=(
                         None if progress is None
                         else lambda done, total, label=label: progress(label, done, total)
@@ -196,16 +204,28 @@ class MatchImportService:
 
         return results
 
+    @staticmethod
+    def _listings(queue_ids, match_types):
+        """
+        Return the match ID listings to page through, as get_match_ids
+        keyword arguments.
+        """
+
+        return (
+            [{"queue": queue_id} for queue_id in queue_ids]
+            + [{"match_type": match_type} for match_type in match_types]
+        )
+
     def _collect_new_match_ids(
         self,
         account,
         state,
-        queue_ids,
+        listings,
         result,
     ):
         """
-        Return unimported match IDs newest first, and whether every queue
-        was listed to its end.
+        Return unimported match IDs newest first, and whether every
+        listing was paged to its end.
         """
 
         known_ids = {
@@ -220,13 +240,13 @@ class MatchImportService:
         new_ids = set()
         reached_end = True
 
-        for queue_id in queue_ids:
+        for listing in listings:
             start = 0
 
-            while start < self.MAX_MATCH_IDS_PER_QUEUE:
+            while start < self.MAX_MATCH_IDS_PER_LISTING:
                 page = self._get_match_id_page(
                     account,
-                    queue_id,
+                    listing,
                     start,
                     result,
                 )
@@ -256,7 +276,7 @@ class MatchImportService:
     def _get_match_id_page(
         self,
         account,
-        queue_id,
+        listing,
         start,
         result,
     ):
@@ -268,7 +288,7 @@ class MatchImportService:
                 account.platform_region,
                 start=start,
                 count=RiotService.MATCH_ID_PAGE_SIZE,
-                queue=queue_id,
+                **listing,
             )
 
         except requests.HTTPError as error:
@@ -285,7 +305,7 @@ class MatchImportService:
             account.platform_region,
             start=start,
             count=RiotService.MATCH_ID_PAGE_SIZE,
-            queue=queue_id,
+            **listing,
         )
 
     def _refresh_puuid(self, account):
@@ -302,7 +322,6 @@ class MatchImportService:
         self,
         account,
         riot_match_id,
-        queue_ids,
         tracked_accounts,
     ):
         existing_match = Match.query.filter_by(
@@ -322,10 +341,7 @@ class MatchImportService:
             account.platform_region,
         )
 
-        if (
-            match_data is None
-            or match_data.get("info", {}).get("queueId") not in queue_ids
-        ):
+        if match_data is None:
             return "unavailable"
 
         match = self._build_match(
@@ -391,6 +407,7 @@ class MatchImportService:
             game_mode=info.get("gameMode"),
             map_id=info.get("mapId"),
             game_version=info.get("gameVersion"),
+            patch=patch_from_game_version(info.get("gameVersion")),
             game_creation=cls._utc_from_milliseconds(info["gameCreation"]),
             game_duration_seconds=cls._duration_seconds(info),
             raw_data=zlib.compress(

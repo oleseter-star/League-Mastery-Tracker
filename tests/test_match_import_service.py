@@ -23,6 +23,10 @@ from application.services.riot_service import RiotService
 JAN_2025_MS = 1_735_689_600_000
 HOUR_MS = 3_600_000
 
+# A ranked queue whose ID the app does not name, standing in for Ranked 5s.
+UNNAMED_RANKED_QUEUE = 4242
+RANKED_QUEUES = {420, 440, UNNAMED_RANKED_QUEUE}
+
 
 class FakeHTTPResponse:
     def __init__(self, status_code):
@@ -61,19 +65,21 @@ class FakeRiotService:
     def puuid(self, identity):
         return f"{identity}-k{self.key_era}"
 
-    def add_game(self, number, queue_id, players, legacy_duration=False):
+    def add_game(self, number, queue_id, players, legacy_duration=False, game_version="16.18.712.3456"):
         """players: (identity, champion_id, team_id, position, win)."""
 
         self.games.append({
             "id": f"EUW1_{number}",
             "number": number,
             "queue_id": queue_id,
+            "match_type": "ranked" if queue_id in RANKED_QUEUES else "normal",
             "players": players,
             "legacy_duration": legacy_duration,
+            "game_version": game_version,
         })
 
-    def get_match_ids(self, puuid, platform_region, start=0, count=100, queue=None):
-        self.id_calls.append((puuid, queue, start))
+    def get_match_ids(self, puuid, platform_region, start=0, count=100, queue=None, match_type=None):
+        self.id_calls.append((puuid, queue or match_type, start))
         identity = self._identity_for(puuid)
 
         ids = [
@@ -81,6 +87,7 @@ class FakeRiotService:
             for game in sorted(self.games, key=lambda game: -game["number"])
             if any(entry[0] == identity for entry in game["players"])
             and (queue is None or game["queue_id"] == queue)
+            and (match_type is None or game["match_type"] == match_type)
         ]
 
         return ids[start:start + count]
@@ -101,7 +108,7 @@ class FakeRiotService:
             "queueId": game["queue_id"],
             "gameMode": "CLASSIC",
             "mapId": 11,
-            "gameVersion": "15.1.1",
+            "gameVersion": game["game_version"],
             "gameCreation": created,
             "gameDuration": 1_800_000 if game["legacy_duration"] else 1800,
             "participants": [
@@ -178,10 +185,11 @@ class MatchImportServiceTests(unittest.TestCase):
         self.app_context.pop()
 
     def add_default_games(self):
-        # Main and Friend together twice, Main alone once, Friend alone once.
+        # Main and Friend together twice (Solo/Duo, Flex), Main alone in
+        # Clash, Friend alone in Solo/Duo.
         self.riot.add_game(1, 420, [("ole", 99, 100, "MIDDLE", True), ("friend", 29, 100, "BOTTOM", True), ("stranger", 238, 200, "MIDDLE", False)])
-        self.riot.add_game(2, 400, [("ole", 99, 100, "MIDDLE", False), ("friend", 154, 100, "JUNGLE", False)])
-        self.riot.add_game(3, 450, [("ole", 29, 200, "", True)])
+        self.riot.add_game(2, 440, [("ole", 99, 100, "MIDDLE", False), ("friend", 154, 100, "JUNGLE", False)])
+        self.riot.add_game(3, 700, [("ole", 29, 200, "UTILITY", True)])
         self.riot.add_game(4, 420, [("friend", 29, 100, "BOTTOM", True)])
 
     def linked_match_ids(self, account):
@@ -235,12 +243,12 @@ class MatchImportServiceTests(unittest.TestCase):
             self.riot.add_game(number, 420, [("ole", 99, 100, "MIDDLE", True)])
 
         with patch.object(RiotService, "MATCH_ID_PAGE_SIZE", 2):
-            self.service.import_account(self.main.id, queue_ids=(420,))
+            self.service.import_account(self.main.id, queue_ids=(420,), match_types=())
             self.riot.add_game(8, 420, [("ole", 99, 100, "MIDDLE", True)])
             self.riot.id_calls.clear()
             self.riot.match_calls.clear()
 
-            result = self.service.import_account(self.main.id, queue_ids=(420,))
+            result = self.service.import_account(self.main.id, queue_ids=(420,), match_types=())
 
         self.assertEqual(result["imported"], 1)
         self.assertEqual(self.riot.match_calls, ["EUW1_8"])
@@ -251,8 +259,8 @@ class MatchImportServiceTests(unittest.TestCase):
             self.riot.add_game(number, 420, [("ole", 99, 100, "MIDDLE", True)])
 
         with patch.object(RiotService, "MATCH_ID_PAGE_SIZE", 2):
-            self.service.import_account(self.main.id, max_new_matches=2, queue_ids=(420,))
-            result = self.service.import_account(self.main.id, queue_ids=(420,))
+            self.service.import_account(self.main.id, max_new_matches=2, queue_ids=(420,), match_types=())
+            result = self.service.import_account(self.main.id, queue_ids=(420,), match_types=())
 
         self.assertEqual(result["imported"], 3)
         self.assertEqual(Match.query.count(), 5)
@@ -321,15 +329,36 @@ class MatchImportServiceTests(unittest.TestCase):
 
         self.assertIn("could not find this Riot ID", str(raised.exception))
 
-    def test_other_queues_are_never_downloaded(self):
+    def test_only_ranked_games_and_clash_are_imported(self):
         self.riot.add_game(1, 2400, [("ole", 99, 100, "MIDDLE", True)])
-        self.riot.add_game(2, 420, [("ole", 99, 100, "MIDDLE", True)])
+        self.riot.add_game(2, 400, [("ole", 99, 100, "MIDDLE", True)])
+        self.riot.add_game(3, 450, [("ole", 99, 100, "", True)])
+        self.riot.add_game(4, 420, [("ole", 99, 100, "MIDDLE", True)])
+        self.riot.add_game(5, 440, [("ole", 99, 100, "MIDDLE", True)])
+        self.riot.add_game(6, 700, [("ole", 99, 100, "MIDDLE", True)])
+        self.riot.add_game(7, UNNAMED_RANKED_QUEUE, [("ole", 99, 100, "MIDDLE", True)])
 
         result = self.service.import_account(self.main.id)
 
-        self.assertEqual(result["imported"], 1)
-        self.assertEqual(self.riot.match_calls, ["EUW1_2"])
-        self.assertNotIn(2400, {queue for _, queue, _ in self.riot.id_calls})
+        self.assertEqual(result["imported"], 4)
+        self.assertEqual(sorted(self.riot.match_calls), ["EUW1_4", "EUW1_5", "EUW1_6", "EUW1_7"])
+        self.assertEqual({listing for _, listing, _ in self.riot.id_calls}, {700, "ranked"})
+        self.assertEqual(
+            sorted(match.queue_id for match in Match.query),
+            [420, 440, 700, UNNAMED_RANKED_QUEUE],
+        )
+
+    def test_patch_is_stored_from_the_game_version(self):
+        self.riot.add_game(1, 420, [("ole", 99, 100, "MIDDLE", True)], game_version="16.18.712.3456")
+        self.riot.add_game(2, 420, [("ole", 99, 100, "MIDDLE", True)], game_version="15.21.715.5926")
+        self.riot.add_game(3, 420, [("ole", 99, 100, "MIDDLE", True)], game_version="")
+
+        self.service.import_account(self.main.id)
+
+        self.assertEqual(
+            {match.riot_match_id: match.patch for match in Match.query},
+            {"EUW1_1": "16.18", "EUW1_2": "15.21", "EUW1_3": None},
+        )
 
     def test_unavailable_games_are_counted_and_skipped(self):
         self.add_default_games()

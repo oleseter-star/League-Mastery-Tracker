@@ -279,9 +279,13 @@ class RiotService:
         start=0,
         count=MATCH_ID_PAGE_SIZE,
         queue=None,
+        match_type=None,
     ):
         """
         Retrieve one page of match IDs for a Riot Account, newest first.
+
+        queue filters by queue ID; match_type by Riot's category, such as
+        "ranked", which covers every ranked queue.
         """
 
         clean_puuid = str(
@@ -304,6 +308,9 @@ class RiotService:
 
         if queue is not None:
             params["queue"] = int(queue)
+
+        if match_type is not None:
+            params["type"] = str(match_type)
 
         url = (
             f"https://{regional_route}.api.riotgames.com"
