@@ -21,7 +21,7 @@ import os
 import sqlite3
 import sys
 import time
-from collections import Counter, deque
+from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import quote
@@ -31,6 +31,7 @@ import requests
 from application.services.application_data_service import (
     ApplicationDataService,
 )
+from application.services.riot_rate_limiter import RiotRateLimiter
 from application.services.riot_service import RiotService
 
 
@@ -49,43 +50,12 @@ DEFAULT_DETAIL_COUNT = 20
 DEFAULT_PLATFORM = "EUW1"
 
 # Kept below the development-key limits of 20 per second and 100 per 2 minutes.
-RATE_LIMITS = ((18, 1.0), (95, 120.0))
+RATE_LIMITS = RiotRateLimiter.DEVELOPMENT_KEY_LIMITS
+RateLimiter = RiotRateLimiter
 
 
 class ProbeError(RuntimeError):
     """A failure that stops the probe with a readable message."""
-
-
-class RateLimiter:
-    """Delay requests so every (count, window) limit is respected."""
-
-    def __init__(self, limits=RATE_LIMITS, clock=time.monotonic, sleep=time.sleep):
-        self.limits = limits
-        self.clock = clock
-        self.sleep = sleep
-        self.history = deque()
-        self.longest_window = max(window for _, window in limits)
-
-    def wait(self):
-        while True:
-            now = self.clock()
-
-            while self.history and now - self.history[0] >= self.longest_window:
-                self.history.popleft()
-
-            delay = 0.0
-
-            for count, window in self.limits:
-                recent = [moment for moment in self.history if now - moment < window]
-
-                if len(recent) >= count:
-                    delay = max(delay, window - (now - recent[-count]))
-
-            if delay <= 0:
-                self.history.append(now)
-                return
-
-            self.sleep(delay)
 
 
 class RiotClient:
@@ -177,8 +147,7 @@ def _retry_after_seconds(response):
 def account_region(platform):
     """Return the Account-V1 route; Account-V1 has no "sea" route."""
 
-    region = RiotService.get_regional_route(platform)
-    return "asia" if region == "sea" else region
+    return RiotService.get_account_regional_route(platform)
 
 
 def match_region(platform):
