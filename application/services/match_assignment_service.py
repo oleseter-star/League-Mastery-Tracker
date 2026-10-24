@@ -49,7 +49,11 @@ class MatchAssignmentService:
     An account belongs to one Person, but a game played on it by someone
     else can be assigned to that other Person. Statistics then count the
     game for them. Assigning a game back to the account's owner clears the
-    assignment.
+    assignment. A game can also be ignored, so it counts for nobody.
+
+    A game needs review when two tracked accounts in it would count for
+    the same Person, which happens when someone else played on one of
+    that Person's accounts in a game with them.
     """
 
     def list_games(self, riot_account_id, selection=GameSelection(), limit=None):
@@ -87,6 +91,7 @@ class MatchAssignmentService:
                     else account.person.display_name
                 ),
                 "assigned": participant.played_by_person_id is not None,
+                "ignored": participant.ignored,
                 "with_accounts": others_by_match.get(participant.match_id, []),
             }
             for participant in participants
@@ -128,6 +133,217 @@ class MatchAssignmentService:
         db.session.commit()
 
         return changed
+
+    def set_ignored(
+        self,
+        riot_account_id,
+        ignored,
+        selection=GameSelection(),
+        all_games=False,
+    ):
+        """
+        Ignore or restore the selected games. Returns how many changed.
+        """
+
+        account = self._get_account(riot_account_id)
+
+        if selection.is_empty() and not all_games:
+            raise ValueError(
+                "Select games by ID, champion, mode, date, or another "
+                "account, or choose every game explicitly."
+            )
+
+        changed = 0
+
+        for participant in self._selected_participants(account, selection):
+            if participant.ignored != ignored:
+                participant.ignored = ignored
+                changed += 1
+
+        db.session.commit()
+
+        return changed
+
+    def set_played_by(self, participant_id, person_id):
+        """
+        Record who played one tracked game; None means the owner.
+        """
+
+        participant = db.session.get(MatchParticipant, participant_id)
+
+        if participant is None or participant.riot_account is None:
+            raise ValueError("That game is not on a tracked Riot account.")
+
+        if person_id is not None and db.session.get(Person, person_id) is None:
+            raise ValueError(f"Person with ID {person_id} was not found.")
+
+        owner_id = participant.riot_account.person_id
+        participant.played_by_person_id = (
+            None if person_id in (None, owner_id) else person_id
+        )
+        db.session.commit()
+
+    def games_to_review(self):
+        """
+        Return games where two tracked accounts count for the same Person,
+        newest first.
+        """
+
+        return [
+            self._describe_game(match, participants)
+            for match, participants in self._review_groups()
+        ]
+
+    def ignore_review_game(self, match_id):
+        """
+        Ignore the conflicting accounts in one game under review.
+        """
+
+        changed = 0
+
+        for match, participants in self._review_groups(match_id=match_id):
+            for participant in participants:
+                participant.ignored = True
+                changed += 1
+
+        db.session.commit()
+
+        return changed
+
+    def ignore_all_review_games(self):
+        """
+        Ignore every game under review. Returns how many games changed.
+        """
+
+        groups = self._review_groups()
+
+        for _match, participants in groups:
+            for participant in participants:
+                participant.ignored = True
+
+        db.session.commit()
+
+        return len({match.id for match, _participants in groups})
+
+    def ignored_games(self):
+        """
+        Return games with ignored tracked accounts, newest first.
+        """
+
+        participants = (
+            MatchParticipant.query
+            .join(Match, MatchParticipant.match_id == Match.id)
+            .filter(MatchParticipant.riot_account_id.isnot(None))
+            .filter(MatchParticipant.ignored.is_(True))
+            .order_by(Match.game_creation.desc(), MatchParticipant.participant_id)
+            .all()
+        )
+
+        by_match = {}
+
+        for participant in participants:
+            by_match.setdefault(participant.match, []).append(participant)
+
+        return [
+            self._describe_game(match, rows)
+            for match, rows in by_match.items()
+        ]
+
+    def restore_game(self, match_id):
+        """
+        Count an ignored game again. Returns how many accounts changed.
+        """
+
+        participants = MatchParticipant.query.filter_by(
+            match_id=match_id,
+            ignored=True,
+        ).all()
+
+        for participant in participants:
+            participant.ignored = False
+
+        db.session.commit()
+
+        return len(participants)
+
+    def _review_groups(self, match_id=None):
+        """
+        Return (match, participants) for every game where two or more
+        counted, tracked participants resolve to the same Person.
+        """
+
+        query = (
+            MatchParticipant.query
+            .join(Match, MatchParticipant.match_id == Match.id)
+            .filter(MatchParticipant.riot_account_id.isnot(None))
+            .filter(MatchParticipant.ignored.is_(False))
+            .order_by(Match.game_creation.desc(), MatchParticipant.participant_id)
+        )
+
+        if match_id is not None:
+            query = query.filter(MatchParticipant.match_id == match_id)
+
+        by_match_and_person = {}
+
+        for participant in query.all():
+            person_id = (
+                participant.played_by_person_id
+                or participant.riot_account.person_id
+            )
+            by_match_and_person.setdefault(
+                (participant.match, person_id),
+                [],
+            ).append(participant)
+
+        groups = {}
+
+        for (match, _person_id), participants in by_match_and_person.items():
+            if len(participants) > 1:
+                groups.setdefault(match, []).extend(participants)
+
+        return sorted(
+            groups.items(),
+            key=lambda item: item[0].game_creation,
+            reverse=True,
+        )
+
+    @staticmethod
+    def _describe_game(match, participants):
+        champion_names = dict(
+            db.session.query(Champion.riot_champion_id, Champion.name).all()
+        )
+
+        return {
+            "match_id": match.id,
+            "riot_match_id": match.riot_match_id,
+            "game_creation": match.game_creation,
+            "queue_id": match.queue_id,
+            "patch": match.patch,
+            "game_duration_seconds": match.game_duration_seconds,
+            "accounts": [
+                {
+                    "participant_id": participant.id,
+                    "riot_id": (
+                        f"{participant.riot_account.game_name}"
+                        f"#{participant.riot_account.tag_line}"
+                    ),
+                    "owner_id": participant.riot_account.person_id,
+                    "owner_name": participant.riot_account.person.display_name,
+                    "played_by_id": (
+                        participant.played_by_person_id
+                        or participant.riot_account.person_id
+                    ),
+                    "champion_name": (
+                        champion_names.get(participant.riot_champion_id)
+                        or f"Champion {participant.riot_champion_id}"
+                    ),
+                    "team_position": participant.team_position,
+                    "team_id": participant.team_id,
+                    "win": participant.win,
+                }
+                for participant in participants
+            ],
+        }
 
     @staticmethod
     def _get_account(riot_account_id):

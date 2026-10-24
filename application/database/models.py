@@ -412,6 +412,15 @@ class MatchParticipant(db.Model):
         nullable=True
     )
 
+    # Set when this game should not count in statistics, for example when
+    # it is unclear who played it.
+    ignored = db.Column(
+        db.Boolean,
+        nullable=False,
+        default=False,
+        server_default=db.false()
+    )
+
     match = db.relationship(
         "Match",
         back_populates="participants"

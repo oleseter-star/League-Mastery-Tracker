@@ -1293,6 +1293,7 @@ class SharedLayoutTests(
             "json_export": ("Settings", "/settings"),
             "json_import": ("Settings", "/settings"),
             "database_restore": ("Settings", "/settings"),
+            "match_review": ("Matches", "/matches/review"),
         }
 
         for blueprint_name, expected_current_link in (
@@ -1317,6 +1318,7 @@ class SharedLayoutTests(
                     [
                         "Dashboard",
                         "Persons",
+                        "Matches",
                         "Settings",
                     ],
                 )
@@ -1335,6 +1337,7 @@ class SharedLayoutTests(
                     for label, href in (
                         ("Dashboard", "/"),
                         ("Persons", "/persons"),
+                        ("Matches", "/matches/review"),
                         ("Settings", "/settings"),
                     )
                 ]

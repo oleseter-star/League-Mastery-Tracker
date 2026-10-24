@@ -12,6 +12,9 @@ Games played by someone else on your account can be moved to that Person:
 
     python match_history.py games --account "Main#EUW" --together-with "Alt#EUW"
     python match_history.py assign --account "Alt#EUW" --together-with "Main#EUW" --person Friend
+    python match_history.py assign --account "Alt#EUW" --match EUW1_7212345678 --ignore
+
+The same decisions can be made in the application under Matches.
 
     python match_history.py import
     python match_history.py import --account "Main#EUW" --max-games 200 --ask-key
@@ -148,6 +151,8 @@ def build_argument_parser():
     target = assign_parser.add_mutually_exclusive_group(required=True)
     target.add_argument("--person", help="The Person who played the selected games.")
     target.add_argument("--to-owner", action="store_true", help="Give the selected games back to the account's owner.")
+    target.add_argument("--ignore", action="store_true", help="Stop counting the selected games in statistics.")
+    target.add_argument("--restore", action="store_true", help="Count ignored games in statistics again.")
     assign_parser.add_argument("--all-games", action="store_true", help="Select every game on the account.")
 
     return parser
@@ -466,7 +471,7 @@ def run_games(arguments, log):
             game["champion_name"] or f"Champion {game['riot_champion_id']}",
             game["team_position"] or "-",
             "Win" if game["win"] else "Loss",
-            game["played_by"] + (" *" if game["assigned"] else ""),
+            "(ignored)" if game["ignored"] else game["played_by"] + (" *" if game["assigned"] else ""),
             ", ".join(game["with_accounts"]) or "-",
         ]
         for game in games
@@ -489,6 +494,23 @@ def run_assign(arguments, log, instance_service):
 
     try:
         account = find_accounts([arguments.account])[0]
+        label = f"{account.game_name}#{account.tag_line}"
+
+        if arguments.ignore or arguments.restore:
+            try:
+                changed = MatchAssignmentService().set_ignored(
+                    account.id,
+                    arguments.ignore,
+                    build_game_selection(arguments),
+                    all_games=arguments.all_games,
+                )
+            except ValueError as error:
+                raise CommandError(str(error)) from None
+
+            state = "ignored" if arguments.ignore else "counted again"
+            log(f"{changed} games on {label} are now {state}.")
+            return 0
+
         person = None if arguments.to_owner else find_persons([arguments.person])[0]
 
         try:

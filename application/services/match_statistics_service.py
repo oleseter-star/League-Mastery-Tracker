@@ -255,6 +255,8 @@ class MatchStatisticsService:
             .join(second_account, second.riot_account_id == second_account.id)
             .join(second_person, self._played_by(second, second_account) == second_person.id)
             .filter(first_person.id < second_person.id)
+            .filter(first.ignored.is_(False))
+            .filter(second.ignored.is_(False))
             .group_by(
                 first_person.id,
                 first_person.display_name,
@@ -379,6 +381,7 @@ class MatchStatisticsService:
 
     def _apply_filters(self, query, tracked, filters):
         query = self._apply_match_filters(query, filters)
+        query = query.filter(tracked.ignored.is_(False))
 
         if filters.person_ids:
             query = query.filter(

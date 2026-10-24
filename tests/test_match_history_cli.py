@@ -340,5 +340,21 @@ class MatchHistoryCliTests(unittest.TestCase):
         self.assertEqual(created, ["RGAPI-from-environment"])
 
 
+    def test_assign_ignore_and_restore(self):
+        self.run_cli("import")
+
+        self.assertEqual(self.run_cli("assign", "--account", "Main#EUW", "--match", "EUW1_2", "--ignore"), 0)
+        self.assertIn("1 games on Main#EUW are now ignored.", self.output())
+
+        self.run_cli("stats", "persons", "--person", "Ole", "--min-games", "1")
+        self.assertIn("Ole         1  1-0", self.output())
+
+        self.run_cli("games", "--account", "Main#EUW")
+        self.assertIn("(ignored)", self.output())
+
+        self.assertEqual(self.run_cli("assign", "--account", "Main#EUW", "--all-games", "--restore"), 0)
+        self.assertIn("1 games on Main#EUW are now counted again.", self.output())
+
+
 if __name__ == "__main__":
     unittest.main()
