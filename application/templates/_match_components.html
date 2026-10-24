@@ -135,3 +135,121 @@
         </span>
     </div>
 {% endmacro %}
+
+{% macro win_rate_cell(row) %}
+    {% set percent = (row.win_rate * 100) | round | int %}
+
+    <span class="win-rate {{ 'win-rate--high' if row.win_rate >= 0.55 else ('win-rate--low' if row.win_rate <= 0.45 else '') }}">
+        <span class="win-rate__bar" aria-hidden="true">
+            <span style="width: {{ percent }}%"></span>
+        </span>
+        <span class="win-rate__value">{{ percent }}%</span>
+    </span>
+{% endmacro %}
+
+{% macro record_cells(row) %}
+    <td class="numeric">{{ row.games }}</td>
+    <td class="numeric">{{ row.wins }}–{{ row.losses }}</td>
+    <td class="numeric">{{ win_rate_cell(row) }}</td>
+    <td class="numeric">
+        <span
+            class="score"
+            title="Lower bound of the 95% confidence interval for the win rate. Sorts by how reliably the win rate holds."
+        >
+            {{ (row.wilson_lower * 100) | round | int }}
+        </span>
+    </td>
+{% endmacro %}
+
+{% macro record_headers(first_label) %}
+    <tr>
+        <th scope="col">{{ first_label }}</th>
+        <th scope="col" class="numeric">Games</th>
+        <th scope="col" class="numeric">W–L</th>
+        <th scope="col" class="numeric">Win rate</th>
+        <th scope="col" class="numeric">
+            <abbr title="Lower bound of the 95% confidence interval for the win rate">Score</abbr>
+        </th>
+    </tr>
+{% endmacro %}
+
+{% macro filter_form(action, selected, persons, mode_choices, patch_choices, position_choices, min_game_choices) %}
+    <form
+        class="stats-filters"
+        method="get"
+        action="{{ action }}"
+    >
+        <div class="stats-filters__field">
+            <label for="filter-person">Person</label>
+            <select id="filter-person" name="person">
+                <option value="">Everyone</option>
+                {% for person in persons %}
+                    <option value="{{ person.id }}" {% if person.id == selected.person %}selected{% endif %}>
+                        {{ person.display_name }}
+                    </option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <fieldset class="stats-filters__field stats-filters__modes">
+            <legend>Modes</legend>
+            {% for mode, label in mode_choices %}
+                <label class="stats-chip">
+                    <input
+                        type="checkbox"
+                        name="mode"
+                        value="{{ mode }}"
+                        {% if mode in selected.modes %}checked{% endif %}
+                    >
+                    <span>{{ label }}</span>
+                </label>
+            {% endfor %}
+        </fieldset>
+
+        <div class="stats-filters__field">
+            <label for="filter-patch-from">From patch</label>
+            <select id="filter-patch-from" name="patch_from">
+                <option value="">Oldest</option>
+                {% for patch, label in patch_choices %}
+                    <option value="{{ patch }}" {% if patch == selected.patch_from %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <div class="stats-filters__field">
+            <label for="filter-patch-to">To patch</label>
+            <select id="filter-patch-to" name="patch_to">
+                <option value="">Newest</option>
+                {% for patch, label in patch_choices %}
+                    <option value="{{ patch }}" {% if patch == selected.patch_to %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <div class="stats-filters__field">
+            <label for="filter-position">Role</label>
+            <select id="filter-position" name="position">
+                <option value="">Any role</option>
+                {% for position, label in position_choices %}
+                    <option value="{{ position }}" {% if position == selected.position %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <div class="stats-filters__field">
+            <label for="filter-min-games">Hide rows below</label>
+            <select id="filter-min-games" name="min_games">
+                {% for count in min_game_choices %}
+                    <option value="{{ count }}" {% if count == selected.min_games %}selected{% endif %}>
+                        {{ count }} game{{ "s" if count != 1 }}
+                    </option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <div class="stats-filters__actions">
+            <button type="submit">Apply</button>
+            <a class="button button-secondary" href="{{ action }}">Reset</a>
+        </div>
+    </form>
+{% endmacro %}

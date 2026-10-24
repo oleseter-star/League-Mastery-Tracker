@@ -267,7 +267,7 @@ class PersonNavigationTestCase(unittest.TestCase):
                 },
                 {
                     "label": "Matches",
-                    "href": "/matches/review",
+                    "href": "/matches",
                     "aria_current": None,
                 },
                 {

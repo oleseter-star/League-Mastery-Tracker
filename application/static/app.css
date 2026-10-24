@@ -1558,3 +1558,329 @@ tbody tr:hover {
         grid-column: 1 / -1;
     }
 }
+
+
+/* Match statistics */
+
+.stats-filters {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: end;
+    gap: var(--space-3) var(--space-4);
+}
+
+.stats-filters__field {
+    display: grid;
+    gap: var(--space-1);
+    min-width: 0;
+    margin: 0;
+    padding: 0;
+    border: 0;
+}
+
+.stats-filters__field > label,
+.stats-filters__field > legend {
+    padding: 0;
+    color: var(--color-text-muted);
+    font-size: var(--font-size-xs);
+    font-weight: var(--font-weight-semibold);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+}
+
+.stats-filters__field select {
+    width: auto;
+    min-width: 8rem;
+    min-height: 2.4rem;
+    padding-block: 0.4rem;
+}
+
+.stats-filters__modes {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+}
+
+.stats-filters__modes legend {
+    margin-bottom: var(--space-1);
+}
+
+.stats-chip {
+    position: relative;
+    display: inline-flex;
+    cursor: pointer;
+    font-weight: var(--font-weight-medium);
+}
+
+.stats-chip input {
+    position: absolute;
+    opacity: 0;
+}
+
+.stats-chip span {
+    padding: 0.4rem 0.75rem;
+    border: 1px solid var(--color-border-strong);
+    border-radius: 999px;
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-sm);
+}
+
+.stats-chip input:checked + span {
+    border-color: var(--color-primary);
+    background: var(--color-info-bg);
+    color: var(--color-text);
+}
+
+.stats-chip input:focus-visible + span {
+    outline: var(--focus-ring-width) solid var(--color-focus);
+    outline-offset: 2px;
+}
+
+.stats-filters__actions {
+    display: flex;
+    gap: var(--space-2);
+}
+
+.stats-filters__actions button,
+.stats-filters__actions .button {
+    min-height: 2.4rem;
+}
+
+.stats-table th,
+.stats-table td {
+    vertical-align: middle;
+}
+
+.stats-table tbody th {
+    color: var(--color-text);
+    font-size: var(--font-size-base);
+    letter-spacing: normal;
+    text-transform: none;
+}
+
+.stats-table .numeric {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.stats-table--compact {
+    width: 100%;
+    table-layout: fixed;
+    font-size: var(--font-size-sm);
+}
+
+.stats-table--compact thead th {
+    font-size: var(--font-size-xs);
+    letter-spacing: 0.02em;
+}
+
+.stats-table--compact th:nth-child(2) {
+    width: 3.6rem;
+}
+
+.stats-table--compact th:nth-child(3) {
+    width: 4.6rem;
+}
+
+.stats-table--compact tbody th {
+    overflow: hidden;
+}
+
+.stats-table--compact th,
+.stats-table--compact td {
+    padding: var(--space-1) var(--space-2);
+}
+
+.stats-table--compact tbody th {
+    font-size: var(--font-size-sm);
+}
+
+.stats-table--compact .stats-champion {
+    gap: var(--space-2);
+}
+
+.stats-table--compact .stats-champion {
+    display: flex;
+    min-width: 0;
+}
+
+.stats-table--compact .stats-champion > span {
+    display: block;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.stats-table--compact .win-rate__bar {
+    display: none;
+}
+
+.stats-champion {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-3);
+    font-weight: var(--font-weight-semibold);
+}
+
+a.stats-champion {
+    color: var(--color-text);
+    text-decoration: none;
+}
+
+a.stats-champion:hover span,
+a.stats-champion:focus-visible span {
+    color: var(--color-link-hover);
+    text-decoration: underline;
+}
+
+.win-rate {
+    display: inline-flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: var(--space-2);
+}
+
+.win-rate__bar {
+    position: relative;
+    width: 4.5rem;
+    height: 0.4rem;
+    overflow: hidden;
+    border-radius: 999px;
+    background: var(--color-surface-raised);
+}
+
+.win-rate__bar::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 50%;
+    width: 1px;
+    background: var(--color-border-strong);
+}
+
+.win-rate__bar span {
+    position: absolute;
+    inset: 0 auto 0 0;
+    background: var(--color-text-muted);
+}
+
+.win-rate--high .win-rate__bar span {
+    background: var(--color-success);
+}
+
+.win-rate--low .win-rate__bar span {
+    background: var(--color-danger);
+}
+
+.win-rate__value {
+    min-width: 2.6rem;
+}
+
+.score {
+    display: inline-block;
+    min-width: 2.2rem;
+    padding: 0.1rem 0.4rem;
+    border-radius: var(--radius-sm);
+    background: var(--color-surface-raised);
+    font-weight: var(--font-weight-semibold);
+    text-align: center;
+}
+
+.stats-role-value {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+}
+
+.stats-champion-hero {
+    display: grid;
+    gap: var(--space-4);
+}
+
+.stats-champion-hero__identity {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-4);
+}
+
+.stats-champion-hero__identity h2 {
+    margin: 0;
+}
+
+.stats-champion-hero__icon {
+    width: 5.5rem;
+    height: 5.5rem;
+    border-radius: var(--radius-lg);
+}
+
+.stats-champion-hero__record {
+    margin: var(--space-1) 0 0;
+}
+
+.stats-champion-hero__record strong {
+    font-size: 1.6rem;
+}
+
+.stats-role-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.stats-role-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-1) var(--space-3);
+    border: 1px solid var(--color-border);
+    border-radius: 999px;
+    background: var(--color-surface-muted);
+}
+
+.stats-roles {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(min(17rem, 100%), 1fr));
+    gap: var(--space-3);
+}
+
+.stats-role {
+    display: grid;
+    align-content: start;
+    gap: var(--space-2);
+    min-width: 0;
+    padding: var(--space-3);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    background: var(--color-surface-muted);
+}
+
+.stats-role--lane {
+    border-color: var(--color-warning-border);
+}
+
+.stats-role__heading {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2);
+    margin: 0;
+    font-size: var(--font-size-base);
+}
+
+.stats-role__more {
+    margin: 0;
+    font-size: var(--font-size-sm);
+}
+
+.stats-columns {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(24rem, 100%), 1fr));
+    gap: var(--space-6);
+}

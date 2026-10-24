@@ -1,0 +1,248 @@
+{% extends "base.html" %}
+
+{% from "_match_components.html" import champion_icon, filter_form, position_icon, record_cells, record_headers, win_rate_cell %}
+
+{% block title %}
+    {{ champion.name }} statistics
+{% endblock %}
+
+{% block page_eyebrow %}
+    Champion statistics
+{% endblock %}
+
+{% block page_heading %}
+    {{ champion.name }}
+{% endblock %}
+
+{% block page_description %}
+    Results on {{ champion.name }} for the selected filters, with and
+    against other champions by role, and with tracked persons.
+{% endblock %}
+
+{% block page_actions %}
+    <a
+        class="button button-secondary"
+        href="{{ url_for('match_statistics.get_statistics') }}{% if query_string %}?{{ query_string }}{% endif %}"
+    >
+        All champions
+    </a>
+{% endblock %}
+
+{% macro role_tables(rows_by_role, heading_prefix, lane_role=none, skip_role=none) %}
+    <div class="stats-roles">
+        {% for position, rows in rows_by_role.items() if position != skip_role %}
+            <section
+                class="stats-role {{ 'stats-role--lane' if position == lane_role }}"
+                aria-label="{{ heading_prefix }} {{ position | position_label }}"
+            >
+                <h3 class="stats-role__heading">
+                    {{ position_icon(position) }}
+                    {{ position | position_label }}
+                    {% if position == lane_role %}
+                        <span class="badge badge--warning">Lane opponent</span>
+                    {% endif %}
+                </h3>
+
+                {% if rows %}
+                    <table class="stats-table stats-table--compact">
+                        <thead>
+                            <tr>
+                                <th scope="col">Champion</th>
+                                <th scope="col" class="numeric">Games</th>
+                                <th scope="col" class="numeric">Win rate</th>
+                            </tr>
+                        </thead>
+
+                        <tbody>
+                            {% for row in rows[:8] %}
+                                <tr>
+                                    <th scope="row">
+                                        <span class="stats-champion">
+                                            {{ champion_icon(row.champion_name or ("Champion " ~ row.riot_champion_id), row.champion_image, 28) }}
+                                            <span title="{{ row.champion_name or ("Champion " ~ row.riot_champion_id) }}">{{ row.champion_name or ("Champion " ~ row.riot_champion_id) }}</span>
+                                        </span>
+                                    </th>
+                                    <td class="numeric" title="{{ row.wins }}–{{ row.losses }}">{{ row.games }}</td>
+                                    <td class="numeric">{{ win_rate_cell(row) }}</td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+
+                    {% if rows | length > 8 %}
+                        <p class="muted stats-role__more">
+                            {{ rows | length - 8 }} more with fewer reliable results.
+                        </p>
+                    {% endif %}
+                {% else %}
+                    <p class="muted">Not enough games.</p>
+                {% endif %}
+            </section>
+        {% endfor %}
+    </div>
+{% endmacro %}
+
+{% block content %}
+    <div class="section-stack">
+        <section
+            class="card"
+            aria-labelledby="filters-heading"
+        >
+            <h2
+                class="sr-only"
+                id="filters-heading"
+            >
+                Filters
+            </h2>
+
+            {{ filter_form(url_for('match_statistics.get_champion', riot_champion_id=champion.riot_champion_id), selected, persons, mode_choices, patch_choices, position_choices, min_game_choices) }}
+        </section>
+
+        <section
+            class="card card--raised stats-champion-hero"
+            aria-labelledby="champion-overview-heading"
+        >
+            <div class="stats-champion-hero__identity">
+                {{ champion_icon(champion.name, champion.image, 88, "stats-champion-hero__icon") }}
+
+                <div>
+                    <h2 id="champion-overview-heading">{{ champion.name }}</h2>
+
+                    {% if record %}
+                        <p class="stats-champion-hero__record">
+                            <strong>{{ (record.win_rate * 100) | round | int }}%</strong>
+                            <span class="muted">
+                                win rate · {{ record.wins }}–{{ record.losses }} in {{ record.games }} games
+                            </span>
+                        </p>
+                    {% else %}
+                        <p class="muted">No games on {{ champion.name }} for these filters.</p>
+                    {% endif %}
+                </div>
+            </div>
+
+            {% if roles %}
+                <ul class="stats-role-chips">
+                    {% for role in roles %}
+                        <li class="stats-role-chip">
+                            {{ position_icon(role.team_position) }}
+                            <span>{{ role.team_position | position_label }}</span>
+                            <span class="muted">{{ role.games }} game{{ "s" if role.games != 1 }} · {{ (role.win_rate * 100) | round | int }}%</span>
+                        </li>
+                    {% endfor %}
+                </ul>
+            {% endif %}
+        </section>
+
+        {% if record %}
+            <section
+                class="card"
+                aria-labelledby="with-heading"
+            >
+                <div class="card__header">
+                    <div>
+                        <h2 id="with-heading">With</h2>
+                        <p class="card__description">
+                            Win rate with each champion on your team, by that champion's role.
+                        </p>
+                    </div>
+                </div>
+
+                {{ role_tables(allies_by_role, "With", skip_role=main_role) }}
+            </section>
+
+            <section
+                class="card"
+                aria-labelledby="against-heading"
+            >
+                <div class="card__header">
+                    <div>
+                        <h2 id="against-heading">Against</h2>
+                        <p class="card__description">
+                            Win rate against each champion on the other team, by that champion's role.
+                        </p>
+                    </div>
+                </div>
+
+                {{ role_tables(enemies_by_role, "Against", main_role) }}
+            </section>
+
+            <div class="stats-columns">
+                <section
+                    class="card"
+                    aria-labelledby="persons-heading"
+                >
+                    <div class="card__header">
+                        <div>
+                            <h2 id="persons-heading">With persons</h2>
+                            <p class="card__description">
+                                Win rate with each tracked person on your team.
+                            </p>
+                        </div>
+                    </div>
+
+                    {% if teammates %}
+                        <div class="table-scroll">
+                            <table class="stats-table">
+                                <thead>
+                                    {{ record_headers("Person") }}
+                                </thead>
+
+                                <tbody>
+                                    {% for row in teammates %}
+                                        <tr>
+                                            <th scope="row">{{ row.person_name }}</th>
+                                            {{ record_cells(row) }}
+                                        </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    {% else %}
+                        <p class="muted">
+                            No tracked person was on your team often enough.
+                        </p>
+                    {% endif %}
+                </section>
+
+                <section
+                    class="card"
+                    aria-labelledby="patches-heading"
+                >
+                    <div class="card__header">
+                        <div>
+                            <h2 id="patches-heading">By patch</h2>
+                            <p class="card__description">
+                                Newest patch first.
+                            </p>
+                        </div>
+                    </div>
+
+                    <div class="table-scroll">
+                        <table class="stats-table">
+                            <thead>
+                                <tr>
+                                    <th scope="col">Patch</th>
+                                    <th scope="col" class="numeric">Games</th>
+                                    <th scope="col" class="numeric">W–L</th>
+                                    <th scope="col" class="numeric">Win rate</th>
+                                </tr>
+                            </thead>
+
+                            <tbody>
+                                {% for row in patches[:12] %}
+                                    <tr>
+                                        <th scope="row">{{ row.patch | patch_label }}</th>
+                                        <td class="numeric">{{ row.games }}</td>
+                                        <td class="numeric">{{ row.wins }}–{{ row.losses }}</td>
+                                        <td class="numeric">{{ win_rate_cell(row) }}</td>
+                                    </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
+            </div>
+        {% endif %}
+    </div>
+{% endblock %}

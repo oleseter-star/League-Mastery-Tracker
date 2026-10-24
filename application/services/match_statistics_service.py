@@ -160,38 +160,42 @@ class MatchStatisticsService:
             reverse=True,
         )
 
-    def ally_champions(self, filters=MatchStatisticsFilter()):
+    def ally_champions(
+        self,
+        filters=MatchStatisticsFilter(),
+        by_position=False,
+    ):
         """
         Results with each champion on the tracked Person's team.
+
+        by_position groups by the ally's position as well, so the same
+        champion in two roles gives two rows.
         """
 
         tracked = aliased(MatchParticipant, name="tracked")
         ally = aliased(MatchParticipant, name="ally")
 
-        query = (
-            self._tracked_query(tracked, filters, ally.riot_champion_id)
-            .join(
-                ally,
-                (ally.match_id == tracked.match_id)
-                & (ally.team_id == tracked.team_id)
-                & (ally.id != tracked.id),
-            )
-            .group_by(ally.riot_champion_id)
-        )
-
-        return self._with_champion_names(
-            self._rows(query, filters, ("riot_champion_id",))
+        return self._other_champion_rows(
+            tracked,
+            ally,
+            filters,
+            (ally.match_id == tracked.match_id)
+            & (ally.team_id == tracked.team_id)
+            & (ally.id != tracked.id),
+            by_position,
         )
 
     def enemy_champions(
         self,
         filters=MatchStatisticsFilter(),
         lane_opponents_only=False,
+        by_position=False,
     ):
         """
         Results against each champion on the other team.
 
-        lane_opponents_only keeps only the enemy in the same position.
+        lane_opponents_only keeps only the enemy in the same position;
+        by_position groups by the enemy's position as well.
         """
 
         tracked = aliased(MatchParticipant, name="tracked")
@@ -209,15 +213,83 @@ class MatchStatisticsService:
                 & (tracked.team_position != "")
             )
 
+        return self._other_champion_rows(
+            tracked,
+            enemy,
+            filters,
+            condition,
+            by_position,
+        )
+
+    def _other_champion_rows(self, tracked, other, filters, condition, by_position):
+        columns = [other.riot_champion_id]
+        key_names = ["riot_champion_id"]
+
+        if by_position:
+            columns.append(other.team_position)
+            key_names.append("team_position")
+
         query = (
-            self._tracked_query(tracked, filters, enemy.riot_champion_id)
-            .join(enemy, condition)
-            .group_by(enemy.riot_champion_id)
+            self._tracked_query(tracked, filters, *columns)
+            .join(other, condition)
+            .group_by(*columns)
         )
 
         return self._with_champion_names(
-            self._rows(query, filters, ("riot_champion_id",))
+            self._rows(query, filters, tuple(key_names))
         )
+
+    def teammates(self, filters=MatchStatisticsFilter()):
+        """
+        Results with each other tracked Person on the same team.
+
+        Unlike person_pairs, every filter applies to the selected
+        Persons' side, so a champion filter gives "on this champion,
+        with whom do I win".
+        """
+
+        tracked = aliased(MatchParticipant, name="tracked")
+        mate = aliased(MatchParticipant, name="mate")
+        mate_account = aliased(RiotAccount, name="mate_account")
+        mate_person = aliased(Person, name="mate_person")
+
+        query = (
+            self._tracked_query(
+                tracked,
+                filters,
+                mate_person.id,
+                mate_person.display_name,
+            )
+            .join(
+                mate,
+                (mate.match_id == tracked.match_id)
+                & (mate.team_id == tracked.team_id)
+                & (mate.id != tracked.id),
+            )
+            .join(mate_account, mate.riot_account_id == mate_account.id)
+            .join(mate_person, self._played_by(mate, mate_account) == mate_person.id)
+            .filter(mate.ignored.is_(False))
+            .filter(mate_person.id != self._played_by(tracked, RiotAccount))
+            .group_by(mate_person.id, mate_person.display_name)
+        )
+
+        return self._rows(query, filters, ("person_id", "person_name"))
+
+    def positions(self, filters=MatchStatisticsFilter()):
+        """
+        Results per position of the tracked side, games without a
+        position left out.
+        """
+
+        tracked = aliased(MatchParticipant, name="tracked")
+
+        query = (
+            self._tracked_query(tracked, filters, tracked.team_position)
+            .filter(tracked.team_position != "")
+            .group_by(tracked.team_position)
+        )
+
+        return self._rows(query, filters, ("team_position",))
 
     def person_pairs(self, filters=MatchStatisticsFilter()):
         """
@@ -452,11 +524,18 @@ class MatchStatisticsService:
 
     @staticmethod
     def _with_champion_names(rows):
-        names = dict(
-            db.session.query(Champion.riot_champion_id, Champion.name).all()
-        )
+        champions = {
+            riot_champion_id: (name, image)
+            for riot_champion_id, name, image in db.session.query(
+                Champion.riot_champion_id,
+                Champion.name,
+                Champion.image,
+            )
+        }
 
         for row in rows:
-            row["champion_name"] = names.get(row["riot_champion_id"])
+            name, image = champions.get(row["riot_champion_id"], (None, None))
+            row["champion_name"] = name
+            row["champion_image"] = image
 
         return rows

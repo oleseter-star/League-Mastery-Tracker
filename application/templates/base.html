@@ -33,7 +33,7 @@
     {% set primary_navigation_sections = {
         "Dashboard": ["home", "champions"],
         "Persons": ["persons"],
-        "Matches": ["match_review"],
+        "Matches": ["match_statistics", "match_review"],
         "Settings": [
             "settings",
             "json_export",
@@ -99,7 +99,7 @@
                 </a>
 
                 <a
-                    href="/matches/review"
+                    href="/matches"
                     {% if current_primary_navigation.section == "Matches" %}
                         aria-current="page"
                     {% endif %}

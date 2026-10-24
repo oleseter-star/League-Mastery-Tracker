@@ -179,6 +179,45 @@ class MatchStatisticsServiceTests(unittest.TestCase):
         self.assertEqual(self.games_and_wins(enemies, champion_name="Alistar"), (1, 1))
         self.assertEqual([(row["champion_name"], row["games"]) for row in lane], [("Zed", 3)])
 
+    def test_allies_and_enemies_grouped_by_their_role(self):
+        filters = MatchStatisticsFilter(person_ids=(self.ole.id,), riot_champion_id=LUX)
+
+        allies = self.service.ally_champions(filters, by_position=True)
+        enemies = self.service.enemy_champions(filters, by_position=True)
+
+        self.assertEqual(
+            {(row["champion_name"], row["team_position"]): (row["games"], row["wins"]) for row in allies},
+            {("Twitch", "BOTTOM"): (1, 1), ("Zac", "JUNGLE"): (1, 0), ("Alistar", "UTILITY"): (1, 1)},
+        )
+        self.assertEqual(
+            {(row["champion_name"], row["team_position"]): (row["games"], row["wins"]) for row in enemies},
+            {("Zed", "MIDDLE"): (3, 2), ("Alistar", "UTILITY"): (1, 1)},
+        )
+
+    def test_teammates_follow_the_champion_filter(self):
+        on_lux = self.service.teammates(MatchStatisticsFilter(person_ids=(self.ole.id,), riot_champion_id=LUX))
+        friend = self.service.teammates(MatchStatisticsFilter(person_ids=(self.friend.id,)))
+        on_twitch = self.service.teammates(MatchStatisticsFilter(person_ids=(self.ole.id,), riot_champion_id=TWITCH))
+
+        self.assertEqual({row["person_name"]: (row["games"], row["wins"]) for row in on_lux}, {"Friend": (2, 1), "Buddy": (1, 1)})
+        # Game 6 had Buddy on the other team, so only Ole counts for Friend.
+        self.assertEqual({row["person_name"]: (row["games"], row["wins"]) for row in friend}, {"Ole": (2, 1)})
+        self.assertEqual(on_twitch, [])
+
+    def test_positions_leave_out_games_without_a_role(self):
+        rows = self.service.positions(MatchStatisticsFilter(person_ids=(self.ole.id,)))
+
+        self.assertEqual([(row["team_position"], row["games"], row["wins"]) for row in rows], [("MIDDLE", 3, 2)])
+
+    def test_champion_rows_include_images(self):
+        self.ole_champion = Champion.query.filter_by(riot_champion_id=LUX).one()
+        self.ole_champion.image = "Lux.png"
+        db.session.commit()
+
+        rows = self.service.champion_overview(MatchStatisticsFilter(person_ids=(self.ole.id,)))
+
+        self.assertEqual(self.record(rows, champion_name="Lux")["champion_image"], "Lux.png")
+
     def test_person_pairs_count_same_team_games_only(self):
         rows = self.service.person_pairs()
 

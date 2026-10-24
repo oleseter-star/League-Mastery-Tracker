@@ -216,6 +216,9 @@ def create_app(config_name="default"):
     from application.routes.match_review import (
         match_review_bp,
     )
+    from application.routes.match_statistics import (
+        match_statistics_bp,
+    )
     from application.routes.persons import (
         persons_bp,
     )
@@ -245,6 +248,10 @@ def create_app(config_name="default"):
 
     app.register_blueprint(
         match_review_bp
+    )
+
+    app.register_blueprint(
+        match_statistics_bp
     )
 
     app.register_blueprint(
