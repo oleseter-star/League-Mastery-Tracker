@@ -42,18 +42,15 @@ class ModeTests(unittest.TestCase):
         self.assertEqual(catalog.queue_id_for_mode("solo"), 420)
         self.assertEqual(catalog.queue_id_for_mode("Flex"), 440)
         self.assertEqual(catalog.queue_id_for_mode("clash"), 700)
-
-    def test_ranked_5s_explains_how_to_find_its_queue_id(self):
-        with self.assertRaises(ValueError) as raised:
-            catalog.queue_id_for_mode("5s")
-
-        self.assertIn("probe_match_history.py", str(raised.exception))
+        self.assertEqual(catalog.queue_id_for_mode("5s"), 710)
+        self.assertEqual(catalog.queue_id_for_mode("fives"), 710)
+        self.assertEqual(catalog.queue_label(710), "Ranked 5s")
 
     def test_unknown_modes_list_the_known_ones(self):
         with self.assertRaises(ValueError) as raised:
             catalog.queue_id_for_mode("aram")
 
-        self.assertIn("clash, flex, solo", str(raised.exception))
+        self.assertIn("5s, clash, flex, solo", str(raised.exception))
 
     def test_queue_labels(self):
         self.assertEqual(catalog.queue_label(420), "Ranked Solo/Duo")

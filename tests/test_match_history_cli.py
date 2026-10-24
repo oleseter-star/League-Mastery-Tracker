@@ -238,11 +238,11 @@ class MatchHistoryCliTests(unittest.TestCase):
         self.assertLess(output.index("26.18"), output.index("26.17"))
         self.assertIn("Patch  Games  W-L", output)
 
-    def test_unknown_mode_patch_and_ranked_5s_are_explained(self):
+    def test_unknown_mode_and_patch_are_explained(self):
         self.run_cli("import")
 
-        self.assertEqual(self.run_cli("stats", "persons", "--mode", "5s"), 2)
-        self.assertIn("Ranked 5s queue ID is not known yet", self.output())
+        self.assertEqual(self.run_cli("stats", "persons", "--mode", "aram"), 2)
+        self.assertIn("Unknown mode 'aram'", self.output())
 
         self.assertEqual(self.run_cli("stats", "persons", "--patch", "latest"), 2)
         self.assertIn("Expected a patch such as 26.18", self.output())
@@ -269,6 +269,75 @@ class MatchHistoryCliTests(unittest.TestCase):
 
         self.assertIn("MIDDLE", self.output())
         self.assertNotIn("BOTTOM", self.output())
+
+
+    def test_games_lists_an_accounts_games_with_other_tracked_accounts(self):
+        self.run_cli("import")
+
+        self.assertEqual(self.run_cli("games", "--account", "Main#EUW"), 0)
+        lines = self.output().splitlines()
+        game_one = next(line for line in lines if line.startswith("EUW1_1"))
+        game_two = next(line for line in lines if line.startswith("EUW1_2"))
+
+        self.assertIn("Friend#EUW", game_one)
+        self.assertIn("Ranked Solo/Duo", game_one)
+        self.assertIn("Ole", game_two)
+        self.assertTrue(game_two.rstrip().endswith("-"))
+
+    def test_assign_moves_games_to_another_person_and_back(self):
+        self.run_cli("import")
+
+        self.assertEqual(self.run_cli("assign", "--account", "Main#EUW", "--match", "euw1_2", "--person", "friend"), 0)
+        self.assertIn("1 games on Main#EUW now count for Friend.", self.output())
+        self.assertTrue(self.instance.released)
+
+        self.run_cli("stats", "persons", "--min-games", "1")
+        self.assertIn("Friend      2  2-0", self.output())
+
+        self.run_cli("games", "--account", "Main#EUW")
+        self.assertIn("Friend *", self.output())
+
+        self.assertEqual(self.run_cli("assign", "--account", "Main#EUW", "--all-games", "--to-owner"), 0)
+        self.assertIn("1 games on Main#EUW now count for Ole (the owner).", self.output())
+
+    def test_assign_needs_a_selection_and_a_closed_application(self):
+        self.run_cli("import")
+
+        self.assertEqual(self.run_cli("assign", "--account", "Main#EUW", "--person", "Friend"), 2)
+        self.assertIn("choose every game explicitly", self.output())
+
+        self.instance.available = False
+        self.assertEqual(self.run_cli("assign", "--account", "Main#EUW", "--all-games", "--person", "Friend"), 2)
+        self.assertIn("League Mastery Tracker is running", self.output())
+
+    def test_assign_selects_games_together_with_another_account(self):
+        self.run_cli("import")
+
+        self.run_cli("assign", "--account", "Main#EUW", "--together-with", "Friend#EUW", "--person", "Friend")
+
+        self.assertIn("1 games on Main#EUW now count for Friend.", self.output())
+
+    def test_import_uses_riot_api_key_from_the_environment(self):
+        created = []
+
+        def build(api_key):
+            created.append(api_key)
+            return FakeRiotService()
+
+        with patch.object(match_history, "KeyOverrideRiotService", side_effect=build), patch.dict(
+            "os.environ", {"RIOT_API_KEY": " RGAPI-from-environment "}
+        ):
+            self.assertEqual(
+                match_history.main(
+                    argv=["import"],
+                    app=self.app,
+                    stdout=self.stdout,
+                    instance_service=self.instance,
+                ),
+                0,
+            )
+
+        self.assertEqual(created, ["RGAPI-from-environment"])
 
 
 if __name__ == "__main__":

@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import case, func
+from sqlalchemy import case, distinct, func, literal_column
 from sqlalchemy.orm import aliased
 
 from application.database.database import db
@@ -45,7 +45,9 @@ class MatchStatisticsService:
 
     Every result counts games from a tracked Person's side, with games,
     wins, losses, win rate, and the lower bound of the 95% Wilson score
-    interval. Results are sorted by that lower bound, so a large sample
+    interval. A game belongs to the Person who played it: the participant's
+    played-by Person when set, otherwise the Riot Account's owner. Each
+    game counts at most once per result row. Results are sorted by that lower bound, so a large sample
     with a good win rate ranks above a short winning streak.
     """
 
@@ -231,20 +233,19 @@ class MatchStatisticsService:
         second_account = aliased(RiotAccount, name="second_account")
         first_person = aliased(Person, name="first_person")
         second_person = aliased(Person, name="second_person")
-
         query = (
             db.session.query(
                 first_person.id,
                 first_person.display_name,
                 second_person.id,
                 second_person.display_name,
-                func.count(first.id),
+                self._games_column(first),
                 self._wins_column(first),
             )
             .select_from(first)
             .join(Match, first.match_id == Match.id)
             .join(first_account, first.riot_account_id == first_account.id)
-            .join(first_person, first_account.person_id == first_person.id)
+            .join(first_person, self._played_by(first, first_account) == first_person.id)
             .join(
                 second,
                 (second.match_id == first.match_id)
@@ -252,7 +253,7 @@ class MatchStatisticsService:
                 & (second.id != first.id),
             )
             .join(second_account, second.riot_account_id == second_account.id)
-            .join(second_person, second_account.person_id == second_person.id)
+            .join(second_person, self._played_by(second, second_account) == second_person.id)
             .filter(first_person.id < second_person.id)
             .group_by(
                 first_person.id,
@@ -354,22 +355,35 @@ class MatchStatisticsService:
         query = (
             db.session.query(
                 *columns,
-                func.count(tracked.id),
+                self._games_column(tracked),
                 self._wins_column(tracked),
             )
             .select_from(tracked)
             .join(Match, tracked.match_id == Match.id)
             .join(RiotAccount, tracked.riot_account_id == RiotAccount.id)
-            .join(Person, RiotAccount.person_id == Person.id)
+            .join(Person, self._played_by(tracked, RiotAccount) == Person.id)
         )
 
         return self._apply_filters(query, tracked, filters)
+
+    @staticmethod
+    def _played_by(participant, account):
+        """
+        The Person who played a tracked participant's game.
+        """
+
+        return func.coalesce(
+            participant.played_by_person_id,
+            account.person_id,
+        )
 
     def _apply_filters(self, query, tracked, filters):
         query = self._apply_match_filters(query, filters)
 
         if filters.person_ids:
-            query = query.filter(RiotAccount.person_id.in_(filters.person_ids))
+            query = query.filter(
+                self._played_by(tracked, RiotAccount).in_(filters.person_ids)
+            )
 
         if filters.riot_account_ids:
             query = query.filter(tracked.riot_account_id.in_(filters.riot_account_ids))
@@ -401,12 +415,20 @@ class MatchStatisticsService:
         return query
 
     @staticmethod
+    def _games_column(participant):
+        return func.count(distinct(participant.match_id)).label("games")
+
+    @staticmethod
     def _wins_column(participant):
-        return func.sum(case((participant.win.is_(True), 1), else_=0))
+        return func.count(
+            distinct(case((participant.win.is_(True), participant.match_id)))
+        )
 
     def _rows(self, query, filters, key_names):
         if filters.min_games > 1:
-            query = query.having(func.count() >= filters.min_games)
+            query = query.having(
+                literal_column("games") >= filters.min_games
+            )
 
         rows = []
 

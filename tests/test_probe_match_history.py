@@ -12,7 +12,7 @@ import probe_match_history as probe
 
 API_KEY = "RGAPI-synthetic-probe-key"
 
-# A ranked queue the app does not name, standing in for Ranked 5s.
+# A ranked queue the app does not name.
 UNNAMED_RANKED_QUEUE = 4242
 RANKED_QUEUE_IDS = {420, 440, UNNAMED_RANKED_QUEUE}
 
@@ -331,7 +331,7 @@ class ProbeRunTests(unittest.TestCase):
         self.assertEqual(accounts["Alt#EUW"]["ranked_games"], 1)
         self.assertEqual(accounts["Alt#EUW"]["other_ranked"], {"games": 1, "sampled_queue_ids": {"4242": 1}})
         self.assertIn(
-            "Other ranked games: 1 (queue ID 4242; probably Ranked 5s",
+            "Other ranked games: 1 (queue ID 4242; a ranked queue League Mastery Tracker does not name yet)",
             (self.output / "report.txt").read_text(encoding="utf-8"),
         )
 

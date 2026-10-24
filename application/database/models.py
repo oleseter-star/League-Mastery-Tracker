@@ -25,6 +25,14 @@ class Person(db.Model):
         lazy=True
     )
 
+    # Games played on another Person's account. Deleting this Person
+    # returns those games to the account's owner.
+    assigned_match_participations = db.relationship(
+        "MatchParticipant",
+        back_populates="played_by_person",
+        lazy=True
+    )
+
     def __repr__(self):
         return f"<Person {self.display_name}>"
 
@@ -396,6 +404,14 @@ class MatchParticipant(db.Model):
         nullable=True
     )
 
+    # Set when someone other than the account's owner played this game;
+    # statistics then count the game for this Person instead.
+    played_by_person_id = db.Column(
+        db.Integer,
+        db.ForeignKey("persons.id", ondelete="SET NULL"),
+        nullable=True
+    )
+
     match = db.relationship(
         "Match",
         back_populates="participants"
@@ -404,6 +420,11 @@ class MatchParticipant(db.Model):
     riot_account = db.relationship(
         "RiotAccount",
         back_populates="match_participations"
+    )
+
+    played_by_person = db.relationship(
+        "Person",
+        back_populates="assigned_match_participations"
     )
 
     def __repr__(self):

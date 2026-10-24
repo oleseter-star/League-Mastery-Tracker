@@ -33,8 +33,6 @@ from application.services.application_data_service import (
 )
 from application.services.match_catalog import (
     QUEUE_NAMES,
-    RANKED_FLEX,
-    RANKED_SOLO_DUO,
     display_patch,
     patch_from_game_version,
     queue_label,
@@ -43,8 +41,8 @@ from application.services.riot_rate_limiter import RiotRateLimiter
 from application.services.riot_service import RiotService
 
 
-# Ranked games outside Solo/Duo and Flex are fetched to read their queue
-# ID, which is how the probe finds the Ranked 5s queue.
+# Ranked games outside the named queues are fetched to read their queue
+# ID, which is how the probe found the Ranked 5s queue.
 OTHER_RANKED_SAMPLE_SIZE = 3
 
 MATCH_ID_PAGE_SIZE = 100
@@ -131,13 +129,25 @@ class RiotClient:
                 continue
 
             raise ProbeError(
-                f"Riot returned HTTP {status} while requesting {description}."
+                f"Riot returned HTTP {status} while requesting {description}"
+                f"{_riot_message(response)}."
             )
 
         raise ProbeError(
             f"Riot did not answer the request for {description} after "
             f"{self.max_attempts} attempts."
         )
+
+
+def _riot_message(response):
+    """Return Riot's own error message, for example ': Bad Request'."""
+
+    try:
+        message = response.json()["status"]["message"]
+    except Exception:
+        return ""
+
+    return f": {str(message)[:200]}" if message else ""
 
 
 def _retry_after_seconds(response):
@@ -395,7 +405,7 @@ def probe_account(client, account, max_match_ids, detail_count, match_cache, log
 
     log(f"{label}: listing all ranked match IDs")
     ranked_ids = list_match_ids(client, region, puuid, max_match_ids, match_type="ranked")
-    named_ranked = set(queue_ids[RANKED_SOLO_DUO]) | set(queue_ids[RANKED_FLEX])
+    named_ranked = {match_id for ids in queue_ids.values() for match_id in ids}
     other_ranked = [match_id for match_id in ranked_ids if match_id not in named_ranked]
     other_ranked_queues = Counter(
         (fetch_match(client, region, match_id, match_cache) or {}).get("info", {}).get("queueId")
@@ -485,7 +495,7 @@ def format_report(summary):
             queue_ids = ", ".join(other_ranked["sampled_queue_ids"]) or "unknown"
             lines.append(
                 f"  Other ranked games: {other_ranked['games']} (queue ID {queue_ids}; "
-                "probably Ranked 5s, tell Claude this number)"
+                "a ranked queue League Mastery Tracker does not name yet)"
             )
 
         if "games_not_imported" in result:

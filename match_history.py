@@ -4,7 +4,14 @@ Uses the application's data directory and saved Riot API key until the
 application has its own match history pages. Close League Mastery Tracker
 before importing; statistics can be printed while it is open.
 
-Only ranked games and Summoner's Rift Clash are imported.
+Only ranked games and Summoner's Rift Clash are imported. The import uses
+the RIOT_API_KEY environment variable when it is set, otherwise the key
+saved in Settings, or --ask-key.
+
+Games played by someone else on your account can be moved to that Person:
+
+    python match_history.py games --account "Main#EUW" --together-with "Alt#EUW"
+    python match_history.py assign --account "Alt#EUW" --together-with "Main#EUW" --person Friend
 
     python match_history.py import
     python match_history.py import --account "Main#EUW" --max-games 200 --ask-key
@@ -17,6 +24,7 @@ Only ranked games and Summoner's Rift Clash are imported.
 
 import argparse
 import getpass
+import os
 import sys
 from datetime import datetime
 
@@ -24,6 +32,10 @@ from application.database.database import db
 from application.database.models import Champion, Person, RiotAccount
 from application.services.application_instance_service import (
     ApplicationInstanceService,
+)
+from application.services.match_assignment_service import (
+    GameSelection,
+    MatchAssignmentService,
 )
 from application.services.match_catalog import (
     MODE_QUEUE_IDS,
@@ -127,7 +139,28 @@ def build_argument_parser():
     stats_parser.add_argument("--limit", type=int, default=25, help="Most rows to print (default 25).")
     stats_parser.add_argument("--include-remakes", action="store_true", help="Count games shorter than five minutes.")
 
+    games_parser = commands.add_parser("games", help="List one account's stored games and who played them.")
+    add_game_selection_arguments(games_parser)
+    games_parser.add_argument("--limit", type=int, default=50, help="Most games to print, newest first (default 50).")
+
+    assign_parser = commands.add_parser("assign", help="Record which Person played games on an account.")
+    add_game_selection_arguments(assign_parser)
+    target = assign_parser.add_mutually_exclusive_group(required=True)
+    target.add_argument("--person", help="The Person who played the selected games.")
+    target.add_argument("--to-owner", action="store_true", help="Give the selected games back to the account's owner.")
+    assign_parser.add_argument("--all-games", action="store_true", help="Select every game on the account.")
+
     return parser
+
+
+def add_game_selection_arguments(parser):
+    parser.add_argument("--account", required=True, metavar="NAME#TAG", help="The Riot account the games were played on.")
+    parser.add_argument("--match", action="append", default=[], metavar="MATCH_ID", help="Only this game, for example EUW1_7212345678; repeat for several.")
+    parser.add_argument("--together-with", metavar="NAME#TAG", help="Only games where this other tracked account was also in the game.")
+    parser.add_argument("--champion", help="Only games on this champion.")
+    parser.add_argument("--mode", action="append", default=[], metavar="MODE", help=f"Only this mode: {', '.join(sorted(MODE_QUEUE_IDS))}.")
+    parser.add_argument("--since", type=parse_date, help="Only games on or after this date (YYYY-MM-DD).")
+    parser.add_argument("--until", type=parse_date, help="Only games before this date (YYYY-MM-DD).")
 
 
 def parse_date(value):
@@ -201,6 +234,9 @@ def run_import(arguments, log, riot_service, read_key, instance_service):
                 raise CommandError("A Riot API key is required.")
 
             riot_service = KeyOverrideRiotService(api_key)
+
+        elif riot_service is None and os.environ.get("RIOT_API_KEY", "").strip():
+            riot_service = KeyOverrideRiotService(os.environ["RIOT_API_KEY"].strip())
 
         accounts = find_accounts(arguments.account) or RiotAccount.query.order_by(RiotAccount.id).all()
 
@@ -387,6 +423,92 @@ def format_table(rows, label_columns):
     return "\n".join(output)
 
 
+def build_game_selection(arguments):
+    try:
+        queue_ids = tuple(queue_id_for_mode(mode) for mode in arguments.mode)
+    except ValueError as error:
+        raise CommandError(str(error)) from None
+
+    together_with = None
+
+    if arguments.together_with:
+        together_with = find_accounts([arguments.together_with])[0].id
+
+    return GameSelection(
+        riot_match_ids=tuple(match_id.strip().upper() for match_id in arguments.match),
+        together_with_account_id=together_with,
+        riot_champion_id=find_champion_id(arguments.champion) if arguments.champion else None,
+        queue_ids=queue_ids,
+        start=arguments.since,
+        end=arguments.until,
+    )
+
+
+def run_games(arguments, log):
+    account = find_accounts([arguments.account])[0]
+    games = MatchAssignmentService().list_games(
+        account.id,
+        build_game_selection(arguments),
+        limit=max(0, arguments.limit),
+    )
+
+    if not games:
+        log("No stored games match. Run the import first, or loosen the filters.")
+        return 0
+
+    header = ["Match", "Date", "Mode", "Patch", "Champion", "Position", "Result", "Played by", "With"]
+    table = [
+        [
+            game["riot_match_id"],
+            f"{game['game_creation']:%Y-%m-%d %H:%M}",
+            queue_label(game["queue_id"]),
+            display_patch(game["patch"]),
+            game["champion_name"] or f"Champion {game['riot_champion_id']}",
+            game["team_position"] or "-",
+            "Win" if game["win"] else "Loss",
+            game["played_by"] + (" *" if game["assigned"] else ""),
+            ", ".join(game["with_accounts"]) or "-",
+        ]
+        for game in games
+    ]
+    widths = [max(len(row[index]) for row in [header, *table]) for index in range(len(header))]
+
+    for row in [header, ["-" * width for width in widths], *table]:
+        log("  ".join(cell.ljust(width) for cell, width in zip(row, widths)).rstrip())
+
+    log("* assigned to someone other than the account's owner (UTC times).")
+    return 0
+
+
+def run_assign(arguments, log, instance_service):
+    if not instance_service.acquire():
+        raise CommandError(
+            "League Mastery Tracker is running. Close it before assigning games, "
+            "so only one program writes to its database."
+        )
+
+    try:
+        account = find_accounts([arguments.account])[0]
+        person = None if arguments.to_owner else find_persons([arguments.person])[0]
+
+        try:
+            changed = MatchAssignmentService().assign(
+                account.id,
+                person.id if person else None,
+                build_game_selection(arguments),
+                all_games=arguments.all_games,
+            )
+        except ValueError as error:
+            raise CommandError(str(error)) from None
+
+        who = person.display_name if person and person.id != account.person_id else f"{account.person.display_name} (the owner)"
+        log(f"{changed} games on {account.game_name}#{account.tag_line} now count for {who}.")
+        return 0
+
+    finally:
+        instance_service.release()
+
+
 def main(
     argv=None,
     app=None,
@@ -414,6 +536,16 @@ def main(
                     log,
                     riot_service,
                     read_key,
+                    instance_service or ApplicationInstanceService(),
+                )
+
+            if arguments.command == "games":
+                return run_games(arguments, log)
+
+            if arguments.command == "assign":
+                return run_assign(
+                    arguments,
+                    log,
                     instance_service or ApplicationInstanceService(),
                 )
 

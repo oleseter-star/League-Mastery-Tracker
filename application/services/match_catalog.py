@@ -11,25 +11,28 @@ Riot announces them.
 RANKED_SOLO_DUO = 420
 RANKED_FLEX = 440
 CLASH = 700
+# Weekend premade ranked. Found by probe_match_history.py: a ranked
+# Summoner's Rift game on a Saturday evening during the first Ranked 5s
+# test period (June to September 2026).
+RANKED_FIVES = 710
 
 QUEUE_NAMES = {
     RANKED_SOLO_DUO: "Ranked Solo/Duo",
     RANKED_FLEX: "Ranked Flex",
+    RANKED_FIVES: "Ranked 5s",
     CLASH: "Clash",
 }
 
 MODE_QUEUE_IDS = {
     "solo": RANKED_SOLO_DUO,
     "flex": RANKED_FLEX,
+    "5s": RANKED_FIVES,
     "clash": CLASH,
 }
 
-# Ranked 5s (weekend premade ranked) is imported through Riot's "ranked"
-# match type, but its queue ID is not known yet. Add it here with its mode
-# names once probe_match_history.py has reported it.
-UNKNOWN_MODES = {
-    "5s": "Ranked 5s",
-    "fives": "Ranked 5s",
+MODE_ALIASES = {
+    "fives": "5s",
+    "duo": "solo",
 }
 
 # Game versions from this major onwards are announced ten higher:
@@ -48,16 +51,10 @@ def queue_id_for_mode(mode):
     """
 
     normalized = str(mode or "").strip().lower()
+    normalized = MODE_ALIASES.get(normalized, normalized)
 
     if normalized in MODE_QUEUE_IDS:
         return MODE_QUEUE_IDS[normalized]
-
-    if normalized in UNKNOWN_MODES:
-        raise ValueError(
-            f"The {UNKNOWN_MODES[normalized]} queue ID is not known yet. "
-            "Run probe_match_history.py; it reports it under "
-            "\"Other ranked games\"."
-        )
 
     raise ValueError(
         f"Unknown mode {mode!r}. Use one of: "
