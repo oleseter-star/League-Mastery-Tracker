@@ -1,9 +1,13 @@
+import time
 from urllib.parse import quote
 
 import requests
 
 from application.services.riot_api_key_service import (
     RiotApiKeyService,
+)
+from application.services.riot_rate_limiter import (
+    shared_rate_limiter,
 )
 
 
@@ -34,8 +38,20 @@ class RiotService:
         "VN2": "sea",
     }
 
-    def __init__(self):
+    MATCH_ID_PAGE_SIZE = 100
+    MAX_REQUEST_ATTEMPTS = 5
+
+    def __init__(
+        self,
+        rate_limiter=None,
+        sleep=time.sleep,
+    ):
         self.timeout_seconds = 10
+        self.rate_limiter = (
+            rate_limiter
+            or shared_rate_limiter
+        )
+        self.sleep = sleep
 
     @classmethod
     def normalize_platform_region(
@@ -83,6 +99,27 @@ class RiotService:
         return cls.PLATFORM_TO_REGIONAL[
             normalized_region
         ]
+
+    @classmethod
+    def get_account_regional_route(
+        cls,
+        platform_region,
+    ):
+        """
+        Return the Account-V1 route for a platform route.
+
+        Account-V1 serves every account from americas, asia, and europe
+        but has no sea route, so sea platforms use asia.
+        """
+
+        regional_route = cls.get_regional_route(
+            platform_region
+        )
+
+        if regional_route == "sea":
+            return "asia"
+
+        return regional_route
 
     @staticmethod
     def _headers():
@@ -156,7 +193,7 @@ class RiotService:
                 "Tag Line is required."
             )
 
-        regional_route = self.get_regional_route(
+        regional_route = self.get_account_regional_route(
             platform_region
         )
 
@@ -234,3 +271,184 @@ class RiotService:
             )
 
         return mastery_data
+
+    def get_match_ids(
+        self,
+        puuid,
+        platform_region,
+        start=0,
+        count=MATCH_ID_PAGE_SIZE,
+        queue=None,
+        match_type=None,
+    ):
+        """
+        Retrieve one page of match IDs for a Riot Account, newest first.
+
+        queue filters by queue ID; match_type by Riot's category, such as
+        "ranked", which covers every ranked queue.
+        """
+
+        clean_puuid = str(
+            puuid or ""
+        ).strip()
+
+        if not clean_puuid:
+            raise ValueError(
+                "PUUID is required."
+            )
+
+        regional_route = self.get_regional_route(
+            platform_region
+        )
+
+        params = {
+            "start": int(start),
+            "count": int(count),
+        }
+
+        if queue is not None:
+            params["queue"] = int(queue)
+
+        if match_type is not None:
+            params["type"] = str(match_type)
+
+        url = (
+            f"https://{regional_route}.api.riotgames.com"
+            f"/lol/match/v5/matches/by-puuid/"
+            f"{quote(clean_puuid, safe='')}/ids"
+        )
+
+        match_ids = self._request_with_retry(
+            url,
+            params=params,
+        )
+
+        if match_ids is None:
+            return []
+
+        if not isinstance(match_ids, list):
+            raise ValueError(
+                "Riot returned invalid match ID data."
+            )
+
+        return match_ids
+
+    def get_match(
+        self,
+        match_id,
+        platform_region,
+    ):
+        """
+        Retrieve one Match-V5 document, or None when Riot no longer has it.
+        """
+
+        clean_match_id = str(
+            match_id or ""
+        ).strip()
+
+        if not clean_match_id:
+            raise ValueError(
+                "Match ID is required."
+            )
+
+        regional_route = self.get_regional_route(
+            platform_region
+        )
+
+        url = (
+            f"https://{regional_route}.api.riotgames.com"
+            f"/lol/match/v5/matches/"
+            f"{quote(clean_match_id, safe='')}"
+        )
+
+        match_data = self._request_with_retry(
+            url
+        )
+
+        if match_data is None:
+            return None
+
+        if not isinstance(match_data, dict):
+            raise ValueError(
+                "Riot returned invalid match data."
+            )
+
+        return match_data
+
+    def _request_with_retry(
+        self,
+        url,
+        params=None,
+    ):
+        """
+        Send one rate-limited GET request for match history.
+
+        Riot's 429 responses wait for Retry-After, and temporary 5xx
+        failures back off before retrying. A 404 returns None.
+        """
+
+        for attempt in range(
+            1,
+            self.MAX_REQUEST_ATTEMPTS + 1,
+        ):
+            self.rate_limiter.wait()
+
+            response = requests.request(
+                method="GET",
+                url=url,
+                headers=self._headers(),
+                params=params,
+                timeout=self.timeout_seconds,
+            )
+
+            status_code = response.status_code
+
+            if status_code == 404:
+                return None
+
+            final_attempt = (
+                attempt
+                == self.MAX_REQUEST_ATTEMPTS
+            )
+
+            if (
+                status_code == 429
+                and not final_attempt
+            ):
+                self.sleep(
+                    self._retry_after_seconds(
+                        response
+                    )
+                )
+                continue
+
+            if (
+                status_code >= 500
+                and not final_attempt
+            ):
+                self.sleep(
+                    2 ** attempt
+                )
+                continue
+
+            response.raise_for_status()
+
+            return response.json()
+
+    @staticmethod
+    def _retry_after_seconds(
+        response,
+    ):
+        try:
+            return max(
+                1,
+                int(
+                    response.headers.get(
+                        "Retry-After",
+                        "10",
+                    )
+                ),
+            )
+
+        except (TypeError, ValueError):
+            return 10

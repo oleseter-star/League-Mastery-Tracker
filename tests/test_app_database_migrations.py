@@ -634,5 +634,75 @@ class AppDatabaseMigrationTests(unittest.TestCase):
         )
 
 
+    def test_existing_database_gains_match_tables_without_version_change(
+        self,
+    ):
+        self._create_current_database()
+
+        connection = sqlite3.connect(
+            str(self.database_file)
+        )
+
+        try:
+            connection.execute(
+                """
+                CREATE TABLE persons (
+                    id INTEGER PRIMARY KEY,
+                    display_name VARCHAR(120) NOT NULL
+                )
+                """
+            )
+
+            connection.execute(
+                "INSERT INTO persons (display_name) VALUES ('Ole')"
+            )
+
+            connection.commit()
+
+        finally:
+            connection.close()
+
+        app = self._create_app()
+
+        self.assertEqual(
+            app.config[
+                "STARTUP_DATABASE_MIGRATION_RESULT"
+            ]["schema_version"],
+            1,
+        )
+
+        connection = sqlite3.connect(
+            str(self.database_file)
+        )
+
+        try:
+            table_names = {
+                row[0]
+                for row in connection.execute(
+                    "SELECT name FROM sqlite_master WHERE type = 'table'"
+                )
+            }
+
+            persons = connection.execute(
+                "SELECT display_name FROM persons"
+            ).fetchall()
+
+        finally:
+            connection.close()
+
+        self.assertTrue(
+            {
+                "matches",
+                "match_participants",
+                "match_import_states",
+            }.issubset(table_names)
+        )
+
+        self.assertEqual(
+            persons,
+            [("Ole",)],
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -1,0 +1,210 @@
+{% extends "base.html" %}
+
+{% from "_match_components.html" import champion_icon, filter_form, position_icon, record_cells, record_headers %}
+
+{% block title %}
+    {% if person %}{{ person.display_name }} with {{ mate.display_name }}{% else %}With {{ mate.display_name }}{% endif %}
+{% endblock %}
+
+{% block page_eyebrow %}
+    Persons together
+{% endblock %}
+
+{% block page_heading %}
+    {% if person %}{{ person.display_name }} with {{ mate.display_name }}{% else %}With {{ mate.display_name }}{% endif %}
+{% endblock %}
+
+{% block page_description %}
+    Games where both were on the same team, for the selected filters.
+{% endblock %}
+
+{% block page_actions %}
+    <a
+        class="button button-secondary"
+        href="{{ url_for('match_statistics.get_statistics') }}{% if query_string %}?{{ query_string }}{% endif %}"
+    >
+        Match statistics
+    </a>
+{% endblock %}
+
+{% macro role_chips(roles) %}
+    {% if roles %}
+        <ul class="stats-role-chips">
+            {% for role in roles %}
+                <li class="stats-role-chip">
+                    {{ position_icon(role.team_position) }}
+                    <span>{{ role.team_position | position_label }}</span>
+                    <span class="muted">{{ role.games }} game{{ "s" if role.games != 1 }} · {{ (role.win_rate * 100) | round | int }}%</span>
+                </li>
+            {% endfor %}
+        </ul>
+    {% endif %}
+{% endmacro %}
+
+{% macro champion_table(rows, link_champions, games_for) %}
+    {% if rows %}
+        <div class="table-scroll">
+            <table class="stats-table">
+                <thead>
+                    {{ record_headers("Champion", selected.sort, sort_url) }}
+                </thead>
+
+                <tbody>
+                    {% for row in rows %}
+                        {% set name = row.champion_name or ("Champion " ~ row.riot_champion_id) %}
+                        <tr>
+                            <th scope="row">
+                                {% if link_champions %}
+                                    <a
+                                        class="stats-champion"
+                                        href="{{ url_for('match_statistics.get_champion', riot_champion_id=row.riot_champion_id) }}{% if query_string %}?{{ query_string }}{% endif %}"
+                                    >
+                                        {{ champion_icon(name, row.champion_image, 32) }}
+                                        <span>{{ name }}</span>
+                                    </a>
+                                {% else %}
+                                    <span class="stats-champion">
+                                        {{ champion_icon(name, row.champion_image, 32) }}
+                                        <span>{{ name }}</span>
+                                    </span>
+                                {% endif %}
+                            </th>
+
+                            {{ record_cells(row, games_for(row.riot_champion_id)) }}
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    {% else %}
+        <p class="muted">
+            No champion has enough games together. Lower "Hide rows below"
+            or widen the filters.
+        </p>
+    {% endif %}
+{% endmacro %}
+
+{% block content %}
+    <div class="section-stack">
+        <section
+            class="card"
+            aria-labelledby="filters-heading"
+        >
+            <h2
+                class="sr-only"
+                id="filters-heading"
+            >
+                Filters
+            </h2>
+
+            {{ filter_form(url_for('match_statistics.get_with_person', mate_id=mate.id), selected, persons, mode_choices, patch_choices, position_choices, min_game_choices, patch_presets) }}
+        </section>
+
+        {% if not person %}
+            <section class="card">
+                <div class="empty-state">
+                    <h3>Choose who plays with {{ mate.display_name }}.</h3>
+
+                    <p>
+                        Select a person other than {{ mate.display_name }} in
+                        the Person filter and apply it.
+                    </p>
+                </div>
+            </section>
+        {% else %}
+            <section
+                class="card card--raised"
+                aria-labelledby="together-heading"
+            >
+                <div class="card__header">
+                    <div>
+                        <h2 id="together-heading">Together</h2>
+
+                        {% if summary.first_game %}
+                            <p class="card__description">
+                                Games from {{ summary.first_game.strftime("%Y-%m-%d") }}
+                                to {{ summary.last_game.strftime("%Y-%m-%d") }}.
+                            </p>
+                        {% endif %}
+                    </div>
+                </div>
+
+                {% if record %}
+                    <p>
+                        <a
+                            class="button button-secondary"
+                            href="{{ games_url(teammate=mate.id) }}"
+                        >
+                            Show {{ record.games }} game{{ "s" if record.games != 1 }} together
+                        </a>
+                    </p>
+
+                    <div class="count-grid">
+                        <div class="count-card">
+                            <span class="count-value">{{ record.games }}</span>
+                            <span class="count-label">Games together</span>
+                        </div>
+
+                        <div class="count-card">
+                            <span class="count-value">{{ (record.win_rate * 100) | round | int }}%</span>
+                            <span class="count-label">Win rate ({{ record.wins }}–{{ record.losses }})</span>
+                        </div>
+                    </div>
+
+                    <div class="stats-columns">
+                        <div>
+                            <h3 class="stats-pair-heading">{{ person.display_name }}'s roles</h3>
+                            {{ role_chips(roles) }}
+                        </div>
+
+                        <div>
+                            <h3 class="stats-pair-heading">{{ mate.display_name }}'s roles</h3>
+                            {{ role_chips(mate_roles) }}
+                        </div>
+                    </div>
+                {% else %}
+                    <p class="muted">
+                        {{ person.display_name }} and {{ mate.display_name }}
+                        have no games on the same team for these filters.
+                    </p>
+                {% endif %}
+            </section>
+
+            {% if record %}
+                <div class="stats-columns">
+                    <section
+                        class="card"
+                        aria-labelledby="own-champions-heading"
+                    >
+                        <div class="card__header">
+                            <div>
+                                <h2 id="own-champions-heading">{{ person.display_name }}'s champions</h2>
+                                <p class="card__description">
+                                    When playing with {{ mate.display_name }}.
+                                </p>
+                            </div>
+                        </div>
+
+                        {{ champion_table(champions, true, own_games_url) }}
+                    </section>
+
+                    <section
+                        class="card"
+                        aria-labelledby="mate-champions-heading"
+                    >
+                        <div class="card__header">
+                            <div>
+                                <h2 id="mate-champions-heading">{{ mate.display_name }}'s champions</h2>
+                                <p class="card__description">
+                                    When playing with {{ person.display_name }}.
+                                </p>
+                            </div>
+                        </div>
+
+                        {{ champion_table(mate_champions, false, mate_games_url) }}
+                    </section>
+                </div>
+            {% endif %}
+        {% endif %}
+    </div>
+{% endblock %}

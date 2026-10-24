@@ -174,6 +174,12 @@ def create_app(config_name="default"):
 
         db.create_all()
 
+        from application.services.match_schema_service import (
+            MatchSchemaService,
+        )
+
+        MatchSchemaService.add_missing_columns()
+
         champion_reference_result = (
             ChampionReferenceBootstrapService()
             .bootstrap()
@@ -207,6 +213,12 @@ def create_app(config_name="default"):
     from application.routes.json_import import (
         json_import_bp,
     )
+    from application.routes.match_review import (
+        match_review_bp,
+    )
+    from application.routes.match_statistics import (
+        match_statistics_bp,
+    )
     from application.routes.persons import (
         persons_bp,
     )
@@ -232,6 +244,14 @@ def create_app(config_name="default"):
 
     app.register_blueprint(
         champion_images_bp
+    )
+
+    app.register_blueprint(
+        match_review_bp
+    )
+
+    app.register_blueprint(
+        match_statistics_bp
     )
 
     app.register_blueprint(

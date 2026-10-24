@@ -1,0 +1,159 @@
+{% extends "base.html" %}
+
+{% from "_match_components.html" import account_stats, champion_icon, filter_form, game_header, position_icon, team_strip %}
+
+{% block title %}
+    Games
+{% endblock %}
+
+{% block page_eyebrow %}
+    Matches
+{% endblock %}
+
+{% block page_heading %}
+    Games
+{% endblock %}
+
+{% block page_description %}
+    The games behind the statistics, newest first.
+{% endblock %}
+
+{% block page_actions %}
+    <a
+        class="button button-secondary"
+        href="{{ url_for('match_statistics.get_statistics') }}{% if query_string %}?{{ query_string }}{% endif %}"
+    >
+        Match statistics
+    </a>
+{% endblock %}
+
+{% block content %}
+    <div class="section-stack">
+        <section
+            class="card"
+            aria-labelledby="filters-heading"
+        >
+            <h2
+                class="sr-only"
+                id="filters-heading"
+            >
+                Filters
+            </h2>
+
+            {{ filter_form(url_for('match_statistics.get_games'), selected, persons, mode_choices, patch_choices, position_choices, min_game_choices, patch_presets, drill_parameters) }}
+        </section>
+
+        <section
+            class="card card--raised"
+            aria-labelledby="selection-heading"
+        >
+            <div class="card__header">
+                <div>
+                    <h2 id="selection-heading">
+                        {{ total }} game{{ "s" if total != 1 }}
+                        {% if total %}
+                            <span class="muted">· {{ wins }}–{{ total - wins }} · {{ (wins * 100 / total) | round | int }}%</span>
+                        {% endif %}
+                    </h2>
+
+                    <ul class="stats-selection">
+                        <li>{{ person.display_name if person else "Everyone" }}</li>
+
+                        {% if drill_down.champion %}
+                            <li>
+                                {{ champion_icon(drill_down.champion.name, drill_down.champion.image, 24) }}
+                                on {{ drill_down.champion.name }}
+                            </li>
+                        {% endif %}
+
+                        {% if drill_down.teammate %}
+                            <li>with {{ drill_down.teammate.display_name }}</li>
+                        {% endif %}
+
+                        {% if drill_down.ally %}
+                            <li>
+                                {{ champion_icon(drill_down.ally.name, drill_down.ally.image, 24) }}
+                                with {{ drill_down.ally.name }}{% if drill_down.ally_role %} ({{ drill_down.ally_role | position_label }}){% endif %}
+                            </li>
+                        {% endif %}
+
+                        {% if drill_down.enemy %}
+                            <li>
+                                {{ champion_icon(drill_down.enemy.name, drill_down.enemy.image, 24) }}
+                                against {{ drill_down.enemy.name }}{% if drill_down.enemy_role %} ({{ drill_down.enemy_role | position_label }}){% endif %}
+                            </li>
+                        {% endif %}
+                    </ul>
+                </div>
+
+                {% if drill_parameters %}
+                    <a
+                        class="button button-secondary"
+                        href="{{ url_for('match_statistics.get_games') }}{% if query_string %}?{{ query_string }}{% endif %}"
+                    >
+                        Show all games
+                    </a>
+                {% endif %}
+            </div>
+        </section>
+
+        {% if games %}
+            <ol class="match-list">
+                {% for game in games %}
+                    {% set account = game.accounts[0] %}
+                    <li class="match-card {{ 'match-card--win' if account.win else 'match-card--loss' }}">
+                        <div class="match-card__header">
+                            {{ game_header(game) }}
+                            <span class="muted">{{ game.riot_match_id }}</span>
+                        </div>
+
+                        <div class="match-card__body">
+                            <div class="match-account match-account--summary">
+                                <div class="match-account__champion">
+                                    {{ champion_icon(account.champion_name, account.champion_image, 48) }}
+
+                                    <span class="match-account__position">
+                                        {{ position_icon(account.team_position) }}
+                                    </span>
+                                </div>
+
+                                <div class="match-account__identity">
+                                    <strong>{{ account.champion_name }}</strong>
+                                    <span class="muted">{{ account.played_by_name }} · {{ account.riot_id }}</span>
+                                </div>
+
+                                {{ account_stats(account) }}
+                            </div>
+
+                            {{ team_strip(game, focus_champion_ids) }}
+                        </div>
+                    </li>
+                {% endfor %}
+            </ol>
+
+            {% if page_count > 1 %}
+                <nav
+                    class="stats-pagination"
+                    aria-label="Game pages"
+                >
+                    {% if page > 1 %}
+                        <a class="button button-secondary" href="?{{ base_query }}{{ '&' if base_query }}page={{ page - 1 }}">Newer games</a>
+                    {% endif %}
+
+                    <span class="muted">Page {{ page }} of {{ page_count }}</span>
+
+                    {% if page < page_count %}
+                        <a class="button button-secondary" href="?{{ base_query }}{{ '&' if base_query }}page={{ page + 1 }}">Older games</a>
+                    {% endif %}
+                </nav>
+            {% endif %}
+        {% else %}
+            <section class="card">
+                <div class="empty-state">
+                    <h3>No games match.</h3>
+                    <p>Widen the filters or go back to the statistics.</p>
+                </div>
+            </section>
+        {% endif %}
+    </div>
+{% endblock %}

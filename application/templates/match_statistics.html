@@ -1,0 +1,247 @@
+{% extends "base.html" %}
+
+{% from "_match_components.html" import champion_icon, filter_form, position_icon, record_cells, record_headers %}
+
+{% block title %}
+    Match statistics
+{% endblock %}
+
+{% block page_eyebrow %}
+    Matches
+{% endblock %}
+
+{% block page_heading %}
+    Match statistics
+{% endblock %}
+
+{% block page_description %}
+    Win rates from stored ranked and Clash games. Choose a champion
+    to see how it does with and against other champions.
+{% endblock %}
+
+{% block page_actions %}
+    <a
+        class="button button-secondary"
+        href="{{ games_url() }}"
+    >
+        Games
+    </a>
+
+    <a
+        class="button button-secondary"
+        href="{{ url_for('match_review.get_review') }}"
+    >
+        Match review{% if review_count %} ({{ review_count }}){% endif %}
+    </a>
+{% endblock %}
+
+{% block content %}
+    <div class="section-stack">
+        {% if not has_games %}
+            <section class="card">
+                <div class="empty-state">
+                    <h3>No games are stored yet.</h3>
+
+                    <p>
+                        Import match history first. Statistics appear here
+                        as soon as games are stored.
+                    </p>
+                </div>
+            </section>
+        {% else %}
+            <section
+                class="card"
+                aria-labelledby="filters-heading"
+            >
+                <h2
+                    class="sr-only"
+                    id="filters-heading"
+                >
+                    Filters
+                </h2>
+
+                {{ filter_form(url_for('match_statistics.get_statistics'), selected, persons, mode_choices, patch_choices, position_choices, min_game_choices, patch_presets) }}
+            </section>
+
+            <section
+                class="card card--raised"
+                aria-labelledby="overview-heading"
+            >
+                <div class="card__header">
+                    <div>
+                        <h2 id="overview-heading">Overview</h2>
+
+                        {% if record.first_game %}
+                            <p class="card__description">
+                                Games from {{ record.first_game.strftime("%Y-%m-%d") }}
+                                to {{ record.last_game.strftime("%Y-%m-%d") }}.
+                            </p>
+                        {% endif %}
+                    </div>
+                </div>
+
+                <div class="count-grid">
+                    <div class="count-card">
+                        <span class="count-value">{{ record.games }}</span>
+                        <span class="count-label">Games</span>
+                    </div>
+
+                    {% if record.win_rate is not none %}
+                        <div class="count-card">
+                            <span class="count-value">{{ (record.win_rate * 100) | round | int }}%</span>
+                            <span class="count-label">Win rate ({{ record.wins }}–{{ record.losses }})</span>
+                        </div>
+                    {% endif %}
+
+                    {% for role in roles[:3] %}
+                        <div class="count-card">
+                            <span class="count-value stats-role-value">
+                                {{ position_icon(role.team_position) }}
+                                {{ (role.win_rate * 100) | round | int }}%
+                            </span>
+                            <span class="count-label">
+                                {{ role.team_position | position_label }} · {{ role.games }} game{{ "s" if role.games != 1 }}
+                            </span>
+                        </div>
+                    {% endfor %}
+                </div>
+
+                {% if not selected.person %}
+                    <p class="muted">
+                        Choose a person to see their overall win rate.
+                    </p>
+                {% endif %}
+            </section>
+
+            <section
+                class="card"
+                aria-labelledby="persons-heading"
+            >
+                <div class="card__header">
+                    <div>
+                        {% if selected.person %}
+                            <h2 id="persons-heading">With persons</h2>
+                            <p class="card__description">
+                                Win rate with each tracked person on your team.
+                                Choose a person to see your champions together.
+                            </p>
+                        {% else %}
+                            <h2 id="persons-heading">Persons</h2>
+                            <p class="card__description">
+                                Each person's own record. Choose a person to
+                                see their champions and who they win with.
+                            </p>
+                        {% endif %}
+                    </div>
+                </div>
+
+                {% if person_rows %}
+                    <div class="table-scroll">
+                        <table class="stats-table">
+                            <thead>
+                                {{ record_headers("Person", selected.sort, sort_url) }}
+                            </thead>
+
+                            <tbody>
+                                {% for row in person_rows %}
+                                    <tr>
+                                        <th scope="row">
+                                            {% if selected.person %}
+                                                <a
+                                                    class="stats-person"
+                                                    href="{{ url_for('match_statistics.get_with_person', mate_id=row.person_id) }}?{{ query_with() }}"
+                                                >
+                                                    {{ row.person_name }}
+                                                </a>
+                                            {% else %}
+                                                <a
+                                                    class="stats-person"
+                                                    href="{{ url_for('match_statistics.get_statistics') }}?{{ query_with(person=row.person_id) }}"
+                                                >
+                                                    {{ row.person_name }}
+                                                </a>
+                                            {% endif %}
+                                        </th>
+
+                                        {% if selected.person %}
+                                            {{ record_cells(row, games_url(teammate=row.person_id)) }}
+                                        {% else %}
+                                            {{ record_cells(row, games_url(person=row.person_id)) }}
+                                        {% endif %}
+                                    </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                {% else %}
+                    <p class="muted">
+                        {% if selected.person %}
+                            No tracked person was on your team often enough
+                            for these filters.
+                        {% else %}
+                            No person has enough games for these filters.
+                        {% endif %}
+                    </p>
+                {% endif %}
+            </section>
+
+            <section
+                class="card"
+                aria-labelledby="champions-heading"
+            >
+                <div class="card__header">
+                    <div>
+                        <h2 id="champions-heading">Champions</h2>
+
+                        <p class="card__description">
+                            {% if selected.sort == "games" %}
+                                Most played first.
+                            {% elif selected.sort == "win_rate" %}
+                                Highest win rate first; small samples can top this list.
+                            {% elif selected.sort == "name" %}
+                                Alphabetical.
+                            {% else %}
+                                Sorted by score, so a long good record ranks
+                                above a short winning streak.
+                            {% endif %}
+                            Choose a column header to sort by it.
+                        </p>
+                    </div>
+                </div>
+
+                {% if champions %}
+                    <div class="table-scroll">
+                        <table class="stats-table">
+                            <thead>
+                                {{ record_headers("Champion", selected.sort, sort_url) }}
+                            </thead>
+
+                            <tbody>
+                                {% for row in champions %}
+                                    <tr>
+                                        <th scope="row">
+                                            <a
+                                                class="stats-champion"
+                                                href="{{ url_for('match_statistics.get_champion', riot_champion_id=row.riot_champion_id) }}{% if query_string %}?{{ query_string }}{% endif %}"
+                                            >
+                                                {{ champion_icon(row.champion_name or ("Champion " ~ row.riot_champion_id), row.champion_image, 36) }}
+                                                <span>{{ row.champion_name or ("Champion " ~ row.riot_champion_id) }}</span>
+                                            </a>
+                                        </th>
+
+                                        {{ record_cells(row, games_url(champion=row.riot_champion_id)) }}
+                                    </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                {% else %}
+                    <p class="muted">
+                        No champion has enough games for these filters.
+                        Lower "Hide rows below" or widen the filters.
+                    </p>
+                {% endif %}
+            </section>
+        {% endif %}
+    </div>
+{% endblock %}

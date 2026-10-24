@@ -25,6 +25,14 @@ class Person(db.Model):
         lazy=True
     )
 
+    # Games played on another Person's account. Deleting this Person
+    # returns those games to the account's owner.
+    assigned_match_participations = db.relationship(
+        "MatchParticipant",
+        back_populates="played_by_person",
+        lazy=True
+    )
+
     def __repr__(self):
         return f"<Person {self.display_name}>"
 
@@ -82,6 +90,21 @@ class RiotAccount(db.Model):
         "ChampionMastery",
         back_populates="riot_account",
         cascade="all, delete-orphan",
+        lazy=True
+    )
+
+    # Deleting a Riot Account keeps its games and clears the link.
+    match_participations = db.relationship(
+        "MatchParticipant",
+        back_populates="riot_account",
+        lazy=True
+    )
+
+    match_import_state = db.relationship(
+        "MatchImportState",
+        back_populates="riot_account",
+        cascade="all, delete-orphan",
+        uselist=False,
         lazy=True
     )
 
@@ -189,4 +212,275 @@ class ChampionMastery(db.Model):
         return (
             f"<ChampionMastery champion={self.champion_id} "
             f"points={self.mastery_points}>"
+        )
+
+
+class Match(db.Model):
+    """
+    One Riot game, shared by every tracked Riot Account that played it.
+
+    Match tables are additive: older versions ignore them, so they do
+    not change the database schema version.
+    """
+
+    __tablename__ = "matches"
+
+    id = db.Column(
+        db.Integer,
+        primary_key=True
+    )
+
+    riot_match_id = db.Column(
+        db.String(40),
+        unique=True,
+        nullable=False
+    )
+
+    platform_id = db.Column(
+        db.String(10),
+        nullable=False
+    )
+
+    queue_id = db.Column(
+        db.Integer,
+        nullable=False
+    )
+
+    game_mode = db.Column(
+        db.String(40),
+        nullable=True
+    )
+
+    map_id = db.Column(
+        db.Integer,
+        nullable=True
+    )
+
+    game_version = db.Column(
+        db.String(40),
+        nullable=True
+    )
+
+    # "major.minor" of game_version, for example 16.18 (announced as 26.18).
+    patch = db.Column(
+        db.String(10),
+        nullable=True,
+        index=True
+    )
+
+    game_creation = db.Column(
+        db.DateTime,
+        nullable=False
+    )
+
+    game_duration_seconds = db.Column(
+        db.Integer,
+        nullable=False
+    )
+
+    # The complete Match-V5 document, zlib-compressed.
+    raw_data = db.Column(
+        db.LargeBinary,
+        nullable=True
+    )
+
+    imported_at = db.Column(
+        db.DateTime,
+        nullable=False
+    )
+
+    participants = db.relationship(
+        "MatchParticipant",
+        back_populates="match",
+        cascade="all, delete-orphan",
+        order_by="MatchParticipant.participant_id",
+        lazy=True
+    )
+
+    def __repr__(self):
+        return f"<Match {self.riot_match_id}>"
+
+
+class MatchParticipant(db.Model):
+    """
+    One of the ten participants in a Match.
+
+    riot_account_id links a participant to a tracked Riot Account. It is
+    the link statistics use, because Riot encrypts PUUIDs per API key
+    project and stored PUUIDs can stop matching after a key change.
+    """
+
+    __tablename__ = "match_participants"
+
+    __table_args__ = (
+        db.UniqueConstraint(
+            "match_id",
+            "participant_id",
+            name="uq_match_participant"
+        ),
+        db.Index(
+            "ix_match_participants_riot_account_id",
+            "riot_account_id"
+        ),
+        db.Index(
+            "ix_match_participants_riot_champion_id",
+            "riot_champion_id"
+        ),
+    )
+
+    id = db.Column(
+        db.Integer,
+        primary_key=True
+    )
+
+    match_id = db.Column(
+        db.Integer,
+        db.ForeignKey("matches.id", ondelete="CASCADE"),
+        nullable=False
+    )
+
+    participant_id = db.Column(
+        db.Integer,
+        nullable=False
+    )
+
+    puuid = db.Column(
+        db.String(100),
+        nullable=True
+    )
+
+    riot_id_game_name = db.Column(
+        db.String(100),
+        nullable=True
+    )
+
+    riot_id_tagline = db.Column(
+        db.String(20),
+        nullable=True
+    )
+
+    riot_champion_id = db.Column(
+        db.Integer,
+        nullable=False
+    )
+
+    team_id = db.Column(
+        db.Integer,
+        nullable=False
+    )
+
+    team_position = db.Column(
+        db.String(20),
+        nullable=False,
+        default=""
+    )
+
+    win = db.Column(
+        db.Boolean,
+        nullable=False
+    )
+
+    kills = db.Column(
+        db.Integer,
+        nullable=False,
+        default=0
+    )
+
+    deaths = db.Column(
+        db.Integer,
+        nullable=False,
+        default=0
+    )
+
+    assists = db.Column(
+        db.Integer,
+        nullable=False,
+        default=0
+    )
+
+    riot_account_id = db.Column(
+        db.Integer,
+        db.ForeignKey("riot_accounts.id", ondelete="SET NULL"),
+        nullable=True
+    )
+
+    # Set when someone other than the account's owner played this game;
+    # statistics then count the game for this Person instead.
+    played_by_person_id = db.Column(
+        db.Integer,
+        db.ForeignKey("persons.id", ondelete="SET NULL"),
+        nullable=True
+    )
+
+    # Set when this game should not count in statistics, for example when
+    # it is unclear who played it.
+    ignored = db.Column(
+        db.Boolean,
+        nullable=False,
+        default=False,
+        server_default=db.false()
+    )
+
+    match = db.relationship(
+        "Match",
+        back_populates="participants"
+    )
+
+    riot_account = db.relationship(
+        "RiotAccount",
+        back_populates="match_participations"
+    )
+
+    played_by_person = db.relationship(
+        "Person",
+        back_populates="assigned_match_participations"
+    )
+
+    def __repr__(self):
+        return (
+            f"<MatchParticipant match={self.match_id} "
+            f"participant={self.participant_id}>"
+        )
+
+
+class MatchImportState(db.Model):
+    """
+    Match history import progress for one Riot Account.
+    """
+
+    __tablename__ = "match_import_states"
+
+    id = db.Column(
+        db.Integer,
+        primary_key=True
+    )
+
+    riot_account_id = db.Column(
+        db.Integer,
+        db.ForeignKey("riot_accounts.id", ondelete="CASCADE"),
+        unique=True,
+        nullable=False
+    )
+
+    last_import_at = db.Column(
+        db.DateTime,
+        nullable=True
+    )
+
+    # Set once every available older game has been imported.
+    history_complete = db.Column(
+        db.Boolean,
+        nullable=False,
+        default=False
+    )
+
+    riot_account = db.relationship(
+        "RiotAccount",
+        back_populates="match_import_state"
+    )
+
+    def __repr__(self):
+        return (
+            f"<MatchImportState account={self.riot_account_id} "
+            f"complete={self.history_complete}>"
         )

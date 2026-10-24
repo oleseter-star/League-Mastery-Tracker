@@ -266,6 +266,11 @@ class PersonNavigationTestCase(unittest.TestCase):
                     "aria_current": "page",
                 },
                 {
+                    "label": "Matches",
+                    "href": "/matches",
+                    "aria_current": None,
+                },
+                {
                     "label": "Settings",
                     "href": "/settings",
                     "aria_current": None,

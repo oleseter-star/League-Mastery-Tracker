@@ -1,0 +1,245 @@
+{% extends "base.html" %}
+
+{% from "_match_components.html" import account_stats, champion_icon, game_header, position_icon, team_strip %}
+
+{% block title %}
+    Match review
+{% endblock %}
+
+{% block page_eyebrow %}
+    Matches
+{% endblock %}
+
+{% block page_heading %}
+    Match review
+{% endblock %}
+
+{% block page_description %}
+    Decide who played games where two accounts of the same person
+    were in one match, or ignore those games in statistics.
+{% endblock %}
+
+{% block content %}
+    <div class="section-stack">
+        <section
+            class="card card--raised"
+            aria-labelledby="review-heading"
+        >
+            <div class="card__header">
+                <div>
+                    <h2 id="review-heading">
+                        Games to review
+                        {% if review_games %}
+                            <span class="badge badge--warning">{{ review_games | length }}</span>
+                        {% endif %}
+                    </h2>
+
+                    <p class="card__description">
+                        Choose who played each account. Highlighted
+                        champions in the team rows are the accounts under
+                        review. A game leaves this list once its accounts
+                        count for different people.
+                    </p>
+                </div>
+
+                {% if review_games %}
+                    <form
+                        class="match-review__ignore-all"
+                        method="post"
+                        action="{{ url_for('match_review.ignore_all_games') }}"
+                        onsubmit='return confirm({{ ("Ignore all " ~ review_games | length ~ " games under review? They stop counting in statistics until you restore them.") | tojson }});'
+                    >
+                        <input
+                            type="hidden"
+                            name="_csrf_token"
+                            value="{{ csrf_token() }}"
+                        >
+
+                        <button
+                            class="button-secondary"
+                            type="submit"
+                        >
+                            Ignore all ({{ review_games | length }})
+                        </button>
+                    </form>
+                {% endif %}
+            </div>
+
+            {% if review_games %}
+                <div class="match-list">
+                    {% for game in review_games %}
+                        <article
+                            class="match-card {{ 'match-card--win' if game.win else 'match-card--loss' }}"
+                            aria-labelledby="review-game-{{ game.match_id }}"
+                        >
+                            <header class="match-card__header">
+                                <h3
+                                    class="sr-only"
+                                    id="review-game-{{ game.match_id }}"
+                                >
+                                    {{ game.queue_id | queue_label }} game on
+                                    {{ game.game_creation.strftime("%Y-%m-%d") }}
+                                </h3>
+
+                                {{ game_header(game) }}
+
+                                <form
+                                    method="post"
+                                    action="{{ url_for('match_review.ignore_game', match_id=game.match_id) }}"
+                                >
+                                    <input
+                                        type="hidden"
+                                        name="_csrf_token"
+                                        value="{{ csrf_token() }}"
+                                    >
+
+                                    <button
+                                        class="button-secondary"
+                                        type="submit"
+                                    >
+                                        Ignore game
+                                    </button>
+                                </form>
+                            </header>
+
+                            <div class="match-card__body">
+                                <ul class="match-accounts">
+                                    {% for account in game.accounts %}
+                                        <li class="match-account">
+                                            <div class="match-account__champion">
+                                                {{ champion_icon(account.champion_name, account.champion_image, 48) }}
+
+                                                <span class="match-account__position">
+                                                    {{ position_icon(account.team_position) }}
+                                                </span>
+                                            </div>
+
+                                            <div class="match-account__identity">
+                                                <strong>{{ account.champion_name }}</strong>
+                                                <span class="muted">{{ account.riot_id }}</span>
+                                            </div>
+
+                                            {{ account_stats(account) }}
+
+                                            <form
+                                                class="match-account__played-by"
+                                                method="post"
+                                                action="{{ url_for('match_review.set_played_by', participant_id=account.participant_id) }}"
+                                            >
+                                                <input
+                                                    type="hidden"
+                                                    name="_csrf_token"
+                                                    value="{{ csrf_token() }}"
+                                                >
+
+                                                <label for="played-by-{{ account.participant_id }}">
+                                                    Played by
+                                                </label>
+
+                                                <select
+                                                    id="played-by-{{ account.participant_id }}"
+                                                    name="person_id"
+                                                >
+                                                    {% for person in persons %}
+                                                        <option
+                                                            value="{{ person.id }}"
+                                                            {% if person.id == account.played_by_id %}selected{% endif %}
+                                                        >
+                                                            {{ person.display_name }}{% if person.id == account.owner_id %} (owner){% endif %}
+                                                        </option>
+                                                    {% endfor %}
+                                                </select>
+
+                                                <button
+                                                    class="button-secondary"
+                                                    type="submit"
+                                                >
+                                                    Save
+                                                </button>
+                                            </form>
+                                        </li>
+                                    {% endfor %}
+                                </ul>
+
+                                {{ team_strip(game) }}
+                            </div>
+                        </article>
+                    {% endfor %}
+                </div>
+            {% else %}
+                <div class="empty-state">
+                    <h3>
+                        No games need review.
+                    </h3>
+
+                    <p>
+                        Games appear here when two accounts of the same
+                        person were in one match after a match history
+                        import.
+                    </p>
+                </div>
+            {% endif %}
+        </section>
+
+        <section
+            class="card"
+            aria-labelledby="ignored-heading"
+        >
+            <div class="card__header">
+                <div>
+                    <h2 id="ignored-heading">
+                        Ignored games
+                    </h2>
+
+                    <p class="card__description">
+                        These games do not count in statistics. Restore a
+                        game to count it again.
+                    </p>
+                </div>
+            </div>
+
+            {% if ignored_games %}
+                <ul class="match-list match-list--compact">
+                    {% for game in ignored_games %}
+                        <li class="match-card match-card--compact {{ 'match-card--win' if game.win else 'match-card--loss' }}">
+                            <div class="match-card__header">
+                                {{ game_header(game) }}
+
+                                <div class="match-compact__accounts">
+                                    {% for account in game.accounts %}
+                                        <span class="match-compact__account">
+                                            {{ champion_icon(account.champion_name, account.champion_image, 32) }}
+                                            <span class="muted">{{ account.riot_id }}</span>
+                                        </span>
+                                    {% endfor %}
+                                </div>
+
+                                <form
+                                    method="post"
+                                    action="{{ url_for('match_review.restore_game', match_id=game.match_id) }}"
+                                >
+                                    <input
+                                        type="hidden"
+                                        name="_csrf_token"
+                                        value="{{ csrf_token() }}"
+                                    >
+
+                                    <button
+                                        class="button-secondary"
+                                        type="submit"
+                                    >
+                                        Restore
+                                    </button>
+                                </form>
+                            </div>
+                        </li>
+                    {% endfor %}
+                </ul>
+            {% else %}
+                <p class="muted">
+                    No games are ignored.
+                </p>
+            {% endif %}
+        </section>
+    </div>
+{% endblock %}
