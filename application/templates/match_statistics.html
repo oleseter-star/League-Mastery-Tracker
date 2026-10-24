@@ -139,7 +139,7 @@
                     <div class="table-scroll">
                         <table class="stats-table">
                             <thead>
-                                {{ record_headers("Person") }}
+                                {{ record_headers("Person", selected.sort, sort_url) }}
                             </thead>
 
                             <tbody>
@@ -194,8 +194,17 @@
                         <h2 id="champions-heading">Champions</h2>
 
                         <p class="card__description">
-                            Sorted by score, so a long good record ranks
-                            above a short winning streak.
+                            {% if selected.sort == "games" %}
+                                Most played first.
+                            {% elif selected.sort == "win_rate" %}
+                                Highest win rate first; small samples can top this list.
+                            {% elif selected.sort == "name" %}
+                                Alphabetical.
+                            {% else %}
+                                Sorted by score, so a long good record ranks
+                                above a short winning streak.
+                            {% endif %}
+                            Choose a column header to sort by it.
                         </p>
                     </div>
                 </div>
@@ -204,7 +213,7 @@
                     <div class="table-scroll">
                         <table class="stats-table">
                             <thead>
-                                {{ record_headers("Champion") }}
+                                {{ record_headers("Champion", selected.sort, sort_url) }}
                             </thead>
 
                             <tbody>

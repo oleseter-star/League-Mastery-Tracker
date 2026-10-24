@@ -167,15 +167,35 @@
     </td>
 {% endmacro %}
 
-{% macro record_headers(first_label) %}
+{% macro sort_header(label, key, sort, sort_url, numeric=true, title=none) %}
+    <th
+        scope="col"
+        class="{{ 'numeric' if numeric }}"
+        {% if sort_url %}aria-sort="{{ ('descending' if numeric else 'ascending') if sort == key else 'none' }}"{% endif %}
+    >
+        {% if sort_url %}
+            <a
+                class="stats-sort {{ 'stats-sort--active' if sort == key }}"
+                href="{{ sort_url(key) }}"
+                {% if title %}title="{{ title }}"{% endif %}
+            >
+                {{ label }}
+            </a>
+        {% elif title %}
+            <abbr title="{{ title }}">{{ label }}</abbr>
+        {% else %}
+            {{ label }}
+        {% endif %}
+    </th>
+{% endmacro %}
+
+{% macro record_headers(first_label, sort=none, sort_url=none) %}
     <tr>
-        <th scope="col">{{ first_label }}</th>
-        <th scope="col" class="numeric">Games</th>
+        {{ sort_header(first_label, "name", sort, sort_url, numeric=false) }}
+        {{ sort_header("Games", "games", sort, sort_url) }}
         <th scope="col" class="numeric">W–L</th>
-        <th scope="col" class="numeric">Win rate</th>
-        <th scope="col" class="numeric">
-            <abbr title="Lower bound of the 95% confidence interval for the win rate">Score</abbr>
-        </th>
+        {{ sort_header("Win rate", "win_rate", sort, sort_url) }}
+        {{ sort_header("Score", "score", sort, sort_url, title="Lower bound of the 95% confidence interval for the win rate") }}
     </tr>
 {% endmacro %}
 

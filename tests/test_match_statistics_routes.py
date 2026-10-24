@@ -289,6 +289,32 @@ class MatchStatisticsRouteTests(unittest.TestCase):
         self.assertIn('<option value="latest" selected>Latest patch</option>', latest)
         self.assertIn("Win rate (3–2)", unknown)
 
+    def test_tables_sort_by_the_chosen_column(self):
+        for number in range(10, 14):
+            self.add_game(number, 440, "16.21", [(self.main, SETT, 100, "TOP", number == 10)])
+
+        db.session.commit()
+        base = f"/matches?person={self.ole.id}&min_games=1"
+
+        _, by_score = self.get_page(base)
+        _, by_games = self.get_page(f"{base}&sort=games")
+        _, by_name = self.get_page(f"{base}&sort=name")
+        _, unknown = self.get_page(f"{base}&sort=sideways")
+
+        def order(page):
+            champions = page[page.index('id="champions-heading"'):]
+            return champions.index(">Kalista<") < champions.index(">Sett<")
+
+        # Kalista 3-1 in 4 games, Sett 1-4 in 5 games.
+        self.assertTrue(order(by_score))
+        self.assertFalse(order(by_games))
+        self.assertTrue(order(by_name))
+        self.assertTrue(order(unknown))
+        self.assertIn('aria-sort="descending"', by_games)
+        self.assertIn(f'href="/matches?person={self.ole.id}&amp;min_games=1&amp;sort=win_rate"', by_score)
+        # Links keep the chosen sort.
+        self.assertIn(f"/matches/champions/{KALISTA}?person={self.ole.id}&amp;min_games=1&amp;sort=games", by_games)
+
     def test_empty_database_explains_how_to_start(self):
         for match in Match.query.all():
             db.session.delete(match)

@@ -1953,6 +1953,25 @@ a.stats-person:focus-visible {
     gap: var(--space-3);
 }
 
+a.stats-sort {
+    color: inherit;
+    text-decoration: none;
+}
+
+a.stats-sort:hover,
+a.stats-sort:focus-visible {
+    color: var(--color-text);
+    text-decoration: underline;
+}
+
+a.stats-sort--active {
+    color: var(--color-primary);
+}
+
+a.stats-sort--active::after {
+    content: " ▾";
+}
+
 a.stats-games-link {
     color: inherit;
     text-decoration: underline;

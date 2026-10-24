@@ -42,6 +42,9 @@ MODE_ORDER = ("solo", "flex", "5s", "clash")
 
 MIN_GAME_CHOICES = (1, 2, 3, 5, 10, 20)
 
+# Table sort orders. "score" is the default and the service's own order.
+SORT_ORDERS = ("score", "games", "win_rate", "name")
+
 # Quick patch ranges: name -> (label, number of newest stored patches).
 PATCH_PRESETS = {
     "latest": ("Latest patch", 1),
@@ -106,6 +109,11 @@ def _read_filters():
     if position not in POSITION_NAMES:
         position = ""
 
+    sort = request.args.get("sort", "score")
+
+    if sort not in SORT_ORDERS:
+        sort = "score"
+
     min_games = request.args.get("min_games", DEFAULT_MIN_GAMES, type=int)
 
     if min_games not in MIN_GAME_CHOICES:
@@ -127,6 +135,7 @@ def _read_filters():
         "patches": patch_preset if patch_preset in PATCH_PRESETS else "",
         "position": position,
         "min_games": min_games,
+        "sort": sort,
     }
 
     return statistics_filter, selected, available_patches
@@ -153,10 +162,35 @@ def _query_string(selected, **changes):
     if values.get("min_games") not in (None, DEFAULT_MIN_GAMES):
         parts.append(("min_games", values["min_games"]))
 
+    if values.get("sort") not in (None, "score"):
+        parts.append(("sort", values["sort"]))
+
     return "&".join(f"{name}={value}" for name, value in parts)
 
 
-FILTER_NAMES = ("person", "modes", "patches", "patch_from", "patch_to", "position", "min_games")
+FILTER_NAMES = ("person", "modes", "patches", "patch_from", "patch_to", "position", "min_games", "sort")
+
+
+def _sorted(rows, sort):
+    """
+    Order statistic rows for display; ties keep the score order.
+    """
+
+    if sort == "games":
+        return sorted(rows, key=lambda row: -row["games"])
+
+    if sort == "win_rate":
+        return sorted(rows, key=lambda row: (-row["win_rate"], -row["games"]))
+
+    if sort == "name":
+        return sorted(
+            rows,
+            key=lambda row: str(
+                row.get("champion_name") or row.get("person_name") or ""
+            ).casefold(),
+        )
+
+    return rows
 
 # Games page drill-down parameters, by their keyword in templates.
 DRILL_DOWN_NAMES = {
@@ -215,6 +249,7 @@ def _filter_context(selected, available_patches):
         "query_string": _query_string(selected),
         "query_with": lambda **changes: _query_string(selected, **changes),
         "games_url": lambda **parameters: _games_url(selected, **parameters),
+        "sort_url": lambda sort: request.path + "?" + _query_string(selected, sort=sort),
         "review_count": len(MatchAssignmentService().games_to_review()),
         "has_games": Match.query.first() is not None,
     }
@@ -273,14 +308,14 @@ def get_statistics():
     service = MatchStatisticsService()
 
     if selected["person"]:
-        person_rows = service.teammates(statistics_filter)
+        person_rows = _sorted(service.teammates(statistics_filter), selected["sort"])
     else:
-        person_rows = service.person_overview(statistics_filter)
+        person_rows = _sorted(service.person_overview(statistics_filter), selected["sort"])
 
     return render_template(
         "match_statistics.html",
         person_rows=person_rows,
-        champions=service.champion_overview(statistics_filter),
+        champions=_sorted(service.champion_overview(statistics_filter), selected["sort"]),
         record=_overall_record(service, statistics_filter),
         roles=service.positions(_every_row(statistics_filter)),
         **_filter_context(selected, available_patches),
@@ -323,7 +358,7 @@ def get_champion(riot_champion_id):
         main_role=main_role,
         allies_by_role=_group_by_role(service.ally_champions(champion_filter, by_position=True)),
         enemies_by_role=_group_by_role(service.enemy_champions(champion_filter, by_position=True)),
-        teammates=service.teammates(champion_filter),
+        teammates=_sorted(service.teammates(champion_filter), selected["sort"]),
         patches=service.patch_results(every_row),
         **_filter_context(selected, available_patches),
     )
@@ -402,8 +437,8 @@ def get_with_person(mate_id):
         summary=service.summary(together),
         roles=service.positions(_every_row(together)),
         mate_roles=service.positions(_every_row(mate_side)),
-        champions=service.champion_overview(together),
-        mate_champions=service.champion_overview(mate_side),
+        champions=_sorted(service.champion_overview(together), selected["sort"]),
+        mate_champions=_sorted(service.champion_overview(mate_side), selected["sort"]),
         **context,
     )
 
