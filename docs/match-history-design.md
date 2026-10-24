@@ -1,8 +1,37 @@
 # Match history and composition statistics
 
-Status: backend and a command-line tool are implemented; no application
-pages yet. The probe (`probe_match_history.py`) has not been run against
-real accounts, so the volume assumptions below are still estimates.
+Status (2026-10-24): implemented and in use on this branch, not yet merged
+to `main`. Ole's four accounts are fully imported (951 ranked and Clash
+games, back to mid-2025, all histories complete). The 22 games where
+friends played on KampensHete were assigned in Match review (16 to Per,
+6 to Iver).
+
+What exists:
+
+* **Matches** in the navigation opens **Match statistics**: filters for
+  Person, ranked mode, patch range, role, and minimum games; an overview;
+  and a champions table. Each champion opens a detail page with win rates
+  with and against champions grouped by role (lane opponent marked), with
+  tracked Persons, and per patch.
+* **Match review**: games where two accounts of one Person were in the
+  same match. Choose who played each account, ignore a game or all games,
+  and restore ignored games. Post-game style cards with champion icons,
+  position icons, K/D/A, CS, and damage.
+* Only Riot's ranked match type and Summoner's Rift Clash are imported:
+  Ranked Solo/Duo (420), Ranked Flex (440), Ranked 5s (710), Clash (700).
+* Positions are shown as Top, Jungle, Mid, Bot, Support.
+
+Next steps:
+
+1. Import the other 19 tracked accounts (friends) for their own history.
+   The import runs on the PC with the key read from the clipboard (pasting
+   into hidden prompts fails in VS Code's terminal); see Command-line use.
+2. Open a pull request for this branch so CI runs the new code.
+3. Later: a recent-games view with the match cards, team-style statistics
+   (needs champion classes), and casual modes as separate views.
+
+Known quirk: on Python 3.13+ the test suite prints ResourceWarnings about
+unclosed in-memory SQLite connections (existing tests too); CI runs 3.12.
 
 Implementation:
 
@@ -12,14 +41,21 @@ Implementation:
   `application/services/riot_rate_limiter.py`;
 * import: `application/services/match_import_service.py`;
 * statistics: `application/services/match_statistics_service.py`;
-* queue and patch names: `application/services/match_catalog.py`;
+* queue, patch, and position names: `application/services/match_catalog.py`;
+* who played a game, ignore and review: `application/services/match_assignment_service.py`;
+* columns added to existing match tables at startup:
+  `application/services/match_schema_service.py`;
+* pages: `application/routes/match_statistics.py`,
+  `application/routes/match_review.py`, templates `match_statistics.html`,
+  `match_champion.html`, `match_review.html`, `_match_components.html`;
 * command line: `match_history.py`.
 
 ## Command-line use
 
 Close the application before importing; statistics can run while it is
-open. The import uses the API key saved in Settings, or `--ask-key` for a
-key entered for one run.
+open. The import uses the `RIOT_API_KEY` environment variable when set,
+otherwise the API key saved in Settings, or `--ask-key` for a key entered
+for one run.
 
 ```powershell
 python match_history.py import --ask-key
@@ -38,8 +74,7 @@ Every table shows games, wins and losses, win rate, and a score: the
 lower bound of the 95% confidence interval for the win rate, used for
 sorting. These options narrow the games counted:
 
-* `--mode solo`, `flex`, or `clash`, repeated to combine; Ranked 5s gets a
-  mode name once its queue ID is known, and `--queue` selects it until then;
+* `--mode solo`, `flex`, `5s`, or `clash`, repeated to combine;
 * `--patch 26.18`, a list (`26.17,26.18`), or a range (`26.12-26.18`),
   repeated to combine; `16.18` works as well as `26.18`;
 * `--min-games` (default 3), `--since`, and `--until`.
