@@ -108,6 +108,74 @@
 
             <section
                 class="card"
+                aria-labelledby="persons-heading"
+            >
+                <div class="card__header">
+                    <div>
+                        {% if selected.person %}
+                            <h2 id="persons-heading">With persons</h2>
+                            <p class="card__description">
+                                Win rate with each tracked person on your team.
+                                Choose a person to see your champions together.
+                            </p>
+                        {% else %}
+                            <h2 id="persons-heading">Persons</h2>
+                            <p class="card__description">
+                                Each person's own record. Choose a person to
+                                see their champions and who they win with.
+                            </p>
+                        {% endif %}
+                    </div>
+                </div>
+
+                {% if person_rows %}
+                    <div class="table-scroll">
+                        <table class="stats-table">
+                            <thead>
+                                {{ record_headers("Person") }}
+                            </thead>
+
+                            <tbody>
+                                {% for row in person_rows %}
+                                    <tr>
+                                        <th scope="row">
+                                            {% if selected.person %}
+                                                <a
+                                                    class="stats-person"
+                                                    href="{{ url_for('match_statistics.get_with_person', mate_id=row.person_id) }}?{{ query_with() }}"
+                                                >
+                                                    {{ row.person_name }}
+                                                </a>
+                                            {% else %}
+                                                <a
+                                                    class="stats-person"
+                                                    href="{{ url_for('match_statistics.get_statistics') }}?{{ query_with(person=row.person_id) }}"
+                                                >
+                                                    {{ row.person_name }}
+                                                </a>
+                                            {% endif %}
+                                        </th>
+
+                                        {{ record_cells(row) }}
+                                    </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                {% else %}
+                    <p class="muted">
+                        {% if selected.person %}
+                            No tracked person was on your team often enough
+                            for these filters.
+                        {% else %}
+                            No person has enough games for these filters.
+                        {% endif %}
+                    </p>
+                {% endif %}
+            </section>
+
+            <section
+                class="card"
                 aria-labelledby="champions-heading"
             >
                 <div class="card__header">

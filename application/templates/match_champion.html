@@ -191,7 +191,18 @@
                                 <tbody>
                                     {% for row in teammates %}
                                         <tr>
-                                            <th scope="row">{{ row.person_name }}</th>
+                                            <th scope="row">
+                                                {% if selected.person %}
+                                                    <a
+                                                        class="stats-person"
+                                                        href="{{ url_for('match_statistics.get_with_person', mate_id=row.person_id) }}?{{ query_with() }}"
+                                                    >
+                                                        {{ row.person_name }}
+                                                    </a>
+                                                {% else %}
+                                                    {{ row.person_name }}
+                                                {% endif %}
+                                            </th>
                                             {{ record_cells(row) }}
                                         </tr>
                                     {% endfor %}

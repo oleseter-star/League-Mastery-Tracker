@@ -157,6 +157,7 @@ def _filter_context(selected, available_patches):
         "position_choices": list(POSITION_NAMES.items()),
         "min_game_choices": MIN_GAME_CHOICES,
         "query_string": _query_string(selected),
+        "query_with": lambda **changes: _query_string(selected, **changes),
         "review_count": len(MatchAssignmentService().games_to_review()),
         "has_games": Match.query.first() is not None,
     }
@@ -214,8 +215,14 @@ def get_statistics():
     statistics_filter, selected, available_patches = _read_filters()
     service = MatchStatisticsService()
 
+    if selected["person"]:
+        person_rows = service.teammates(statistics_filter)
+    else:
+        person_rows = service.person_overview(statistics_filter)
+
     return render_template(
         "match_statistics.html",
+        person_rows=person_rows,
         champions=service.champion_overview(statistics_filter),
         record=_overall_record(service, statistics_filter),
         roles=service.positions(_every_row(statistics_filter)),
@@ -273,3 +280,58 @@ def _group_by_role(rows):
             groups[row["team_position"]].append(row)
 
     return groups
+
+
+@match_statistics_bp.route(
+    "/matches/with/<int:mate_id>",
+    methods=["GET"],
+)
+def get_with_person(mate_id):
+    """
+    Show results when the selected Person and another tracked Person
+    were on the same team.
+    """
+
+    mate = db.session.get(Person, mate_id)
+
+    if mate is None:
+        abort(404)
+
+    statistics_filter, selected, available_patches = _read_filters()
+    context = _filter_context(selected, available_patches)
+    person = db.session.get(Person, selected["person"]) if selected["person"] else None
+
+    if person is None or person.id == mate.id:
+        return render_template(
+            "match_with_person.html",
+            person=None,
+            mate=mate,
+            **context,
+        )
+
+    service = MatchStatisticsService()
+    together = MatchStatisticsFilter(
+        **{**statistics_filter.__dict__, "with_person_id": mate.id}
+    )
+    mate_side = MatchStatisticsFilter(
+        **{
+            **statistics_filter.__dict__,
+            "person_ids": (mate.id,),
+            "with_person_id": person.id,
+            "team_position": None,
+        }
+    )
+    record = service.person_overview(_every_row(together))
+
+    return render_template(
+        "match_with_person.html",
+        person=person,
+        mate=mate,
+        record=record[0] if record else None,
+        summary=service.summary(together),
+        roles=service.positions(_every_row(together)),
+        mate_roles=service.positions(_every_row(mate_side)),
+        champions=service.champion_overview(together),
+        mate_champions=service.champion_overview(mate_side),
+        **context,
+    )

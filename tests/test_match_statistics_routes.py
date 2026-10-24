@@ -163,7 +163,7 @@ class MatchStatisticsRouteTests(unittest.TestCase):
         self.assertIn("Lane opponent", page)
         self.assertIn("/champions/images/Thresh.png", page)
         self.assertIn("/champions/images/Ahri.png", page)
-        self.assertIn(">Friend<", page)
+        self.assertIn(f'href="/matches/with/{self.friend.id}?person={self.ole.id}&amp;min_games=1"', page)
         self.assertIn(">26.21<", page)
         self.assertIn(f'href="/matches?person={self.ole.id}&amp;min_games=1"', page)
 
@@ -174,6 +174,53 @@ class MatchStatisticsRouteTests(unittest.TestCase):
 
         status, _ = self.get_page("/matches/champions/99999")
         self.assertEqual(status, 404)
+
+    def test_persons_section_for_everyone_links_to_each_person(self):
+        _, page = self.get_page("/matches?min_games=1")
+
+        self.assertIn(f'href="/matches?person={self.ole.id}&amp;min_games=1"', page)
+        self.assertIn(f'href="/matches?person={self.friend.id}&amp;min_games=1"', page)
+        self.assertIn("Each person's own record.", page)
+
+    def test_persons_section_for_one_person_links_to_the_with_page(self):
+        _, page = self.get_page(f"/matches?person={self.ole.id}&min_games=1")
+
+        self.assertIn("With persons", page)
+        self.assertIn(f'href="/matches/with/{self.friend.id}?person={self.ole.id}&amp;min_games=1"', page)
+
+    def test_with_page_shows_record_and_both_champion_pools(self):
+        status, page = self.get_page(f"/matches/with/{self.friend.id}?person={self.ole.id}&min_games=1")
+        text = " ".join(page.split())
+
+        self.assertEqual(status, 200)
+        self.assertIn("Ole with Friend", text)
+        self.assertIn("Win rate (3–1)", text)
+        self.assertIn(">4</span> <span class=\"count-label\">Games together", text)
+        self.assertIn("Ole's champions", text)
+        self.assertIn("Friend's champions", text)
+        self.assertIn(f'/matches/champions/{KALISTA}?person={self.ole.id}&amp;min_games=1', page)
+        self.assertIn("/champions/images/Thresh.png", page)
+        # Ole's Sett game was without Friend.
+        self.assertNotIn("/champions/images/Sett.png", page)
+
+    def test_with_page_needs_a_different_person(self):
+        _, without_person = self.get_page(f"/matches/with/{self.friend.id}")
+        _, same_person = self.get_page(f"/matches/with/{self.friend.id}?person={self.friend.id}")
+        status, _ = self.get_page("/matches/with/999")
+
+        self.assertIn("Choose who plays with Friend.", without_person)
+        self.assertIn("Choose who plays with Friend.", same_person)
+        self.assertEqual(status, 404)
+
+    def test_with_page_without_shared_games(self):
+        self.add_game(6, 420, "16.21", [(self.friend_account, THRESH, 200, "UTILITY", True)])
+        loner = Person(display_name="Loner")
+        db.session.add(loner)
+        db.session.commit()
+
+        _, page = self.get_page(f"/matches/with/{loner.id}?person={self.ole.id}")
+
+        self.assertIn("have no games on the same team for these filters.", " ".join(page.split()))
 
     def test_empty_database_explains_how_to_start(self):
         for match in Match.query.all():

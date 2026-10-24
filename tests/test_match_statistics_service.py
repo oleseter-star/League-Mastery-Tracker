@@ -204,6 +204,29 @@ class MatchStatisticsServiceTests(unittest.TestCase):
         self.assertEqual({row["person_name"]: (row["games"], row["wins"]) for row in friend}, {"Ole": (2, 1)})
         self.assertEqual(on_twitch, [])
 
+    def test_with_person_filter_keeps_games_with_that_teammate(self):
+        with_friend = MatchStatisticsFilter(person_ids=(self.ole.id,), with_person_id=self.friend.id)
+        friend_with_ole = MatchStatisticsFilter(person_ids=(self.friend.id,), with_person_id=self.ole.id)
+
+        self.assertEqual(self.games_and_wins(self.service.person_overview(with_friend), person_name="Ole"), (2, 1))
+        self.assertEqual(
+            {row["champion_name"]: row["games"] for row in self.service.champion_overview(friend_with_ole)},
+            {"Twitch": 1, "Zac": 1},
+        )
+        self.assertEqual(self.service.summary(with_friend)["games"], 2)
+        # Buddy was only an enemy of Friend (game 6) and a teammate of Ole's alt.
+        self.assertEqual(
+            self.service.person_overview(MatchStatisticsFilter(person_ids=(self.friend.id,), with_person_id=self.buddy.id)),
+            [],
+        )
+        self.assertEqual(
+            self.games_and_wins(
+                self.service.person_overview(MatchStatisticsFilter(person_ids=(self.ole.id,), with_person_id=self.buddy.id)),
+                person_name="Ole",
+            ),
+            (1, 1),
+        )
+
     def test_positions_leave_out_games_without_a_role(self):
         rows = self.service.positions(MatchStatisticsFilter(person_ids=(self.ole.id,)))
 

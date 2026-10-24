@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import case, distinct, func, literal_column
+from sqlalchemy import case, distinct, exists, func, literal_column
 from sqlalchemy.orm import aliased
 
 from application.database.database import db
@@ -24,7 +24,8 @@ class MatchStatisticsFilter:
 
     Empty tuples mean "all". Champion and position filters apply to the
     tracked Person's side of each game. Patches use the stored form, for
-    example "16.18".
+    example "16.18". with_person_id keeps games where that tracked Person
+    was on the same team.
     """
 
     person_ids: tuple = ()
@@ -35,6 +36,7 @@ class MatchStatisticsFilter:
     end: Optional[datetime] = None
     team_position: Optional[str] = None
     riot_champion_id: Optional[int] = None
+    with_person_id: Optional[int] = None
     min_games: int = 1
     include_remakes: bool = False
 
@@ -469,7 +471,30 @@ class MatchStatisticsService:
         if filters.riot_champion_id is not None:
             query = query.filter(tracked.riot_champion_id == filters.riot_champion_id)
 
+        if filters.with_person_id is not None:
+            query = query.filter(
+                self._has_teammate(tracked, filters.with_person_id)
+            )
+
         return query
+
+    def _has_teammate(self, tracked, person_id):
+        """
+        True when another counted, tracked participant on the same team
+        was played by person_id.
+        """
+
+        mate = aliased(MatchParticipant, name="filter_mate")
+        mate_account = aliased(RiotAccount, name="filter_mate_account")
+
+        return exists().where(
+            (mate.match_id == tracked.match_id)
+            & (mate.team_id == tracked.team_id)
+            & (mate.id != tracked.id)
+            & (mate.ignored.is_(False))
+            & (mate.riot_account_id == mate_account.id)
+            & (self._played_by(mate, mate_account) == person_id)
+        )
 
     def _apply_match_filters(self, query, filters):
         if filters.queue_ids:
