@@ -1528,6 +1528,12 @@ tbody tr:hover {
     outline-offset: 1px;
 }
 
+.match-team__member--focus .match-champion {
+    opacity: 1;
+    outline: 2px solid var(--color-primary);
+    outline-offset: 1px;
+}
+
 .match-compact__accounts {
     display: flex;
     flex-wrap: wrap;
@@ -1908,4 +1914,54 @@ a.stats-person:focus-visible {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(min(24rem, 100%), 1fr));
     gap: var(--space-6);
+}
+
+.match-account--summary {
+    grid-template-columns: auto minmax(8rem, 1fr) minmax(10rem, 1.6fr);
+}
+
+.stats-selection {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    margin: var(--space-2) 0 0;
+    padding: 0;
+    list-style: none;
+}
+
+.stats-selection li {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-1) var(--space-3);
+    border: 1px solid var(--color-border);
+    border-radius: 999px;
+    background: var(--color-surface-muted);
+    font-size: var(--font-size-sm);
+}
+
+.stats-selection .match-champion {
+    width: 1.5rem;
+    height: 1.5rem;
+}
+
+.stats-pagination {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-3);
+}
+
+a.stats-games-link {
+    color: inherit;
+    text-decoration: underline;
+    text-decoration-color: var(--color-border-strong);
+    text-underline-offset: 0.2em;
+}
+
+a.stats-games-link:hover,
+a.stats-games-link:focus-visible {
+    color: var(--color-link-hover);
+    text-decoration-color: currentColor;
 }

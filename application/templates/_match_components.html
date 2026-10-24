@@ -87,7 +87,7 @@
     </div>
 {% endmacro %}
 
-{% macro team_strip(game) %}
+{% macro team_strip(game, focus_champion_ids=[]) %}
     <div class="match-teams">
         {% for team in game.teams %}
             <div class="match-team {{ 'match-team--win' if team.win else 'match-team--loss' }}">
@@ -97,7 +97,7 @@
 
                 {% for member in team.participants %}
                     <span
-                        class="match-team__member {{ 'match-team__member--tracked' if member.tracked }}{{ ' match-team__member--selected' if member.selected }}"
+                        class="match-team__member {{ 'match-team__member--tracked' if member.tracked }}{{ ' match-team__member--selected' if member.selected }}{{ ' match-team__member--focus' if member.riot_champion_id in focus_champion_ids and not member.selected }}"
                         title="{{ member.champion_name }}{% if member.riot_id_game_name %} · {{ member.riot_id_game_name }}{% endif %}"
                     >
                         {{ champion_icon(member.champion_name, member.champion_image, 32) }}
@@ -147,8 +147,14 @@
     </span>
 {% endmacro %}
 
-{% macro record_cells(row) %}
-    <td class="numeric">{{ row.games }}</td>
+{% macro record_cells(row, games_link=none) %}
+    <td class="numeric">
+        {% if games_link %}
+            <a class="stats-games-link" href="{{ games_link }}" title="Show these games">{{ row.games }}</a>
+        {% else %}
+            {{ row.games }}
+        {% endif %}
+    </td>
     <td class="numeric">{{ row.wins }}–{{ row.losses }}</td>
     <td class="numeric">{{ win_rate_cell(row) }}</td>
     <td class="numeric">
@@ -173,12 +179,15 @@
     </tr>
 {% endmacro %}
 
-{% macro filter_form(action, selected, persons, mode_choices, patch_choices, position_choices, min_game_choices) %}
+{% macro filter_form(action, selected, persons, mode_choices, patch_choices, position_choices, min_game_choices, patch_presets=[], hidden={}) %}
     <form
         class="stats-filters"
         method="get"
         action="{{ action }}"
     >
+        {% for name, value in hidden.items() %}
+            <input type="hidden" name="{{ name }}" value="{{ value }}">
+        {% endfor %}
         <div class="stats-filters__field">
             <label for="filter-person">Person</label>
             <select id="filter-person" name="person">
@@ -205,6 +214,18 @@
                 </label>
             {% endfor %}
         </fieldset>
+
+        {% if patch_presets %}
+            <div class="stats-filters__field">
+                <label for="filter-patches">Patches</label>
+                <select id="filter-patches" name="patches">
+                    <option value="">Custom range</option>
+                    {% for name, label in patch_presets %}
+                        <option value="{{ name }}" {% if name == selected.patches %}selected{% endif %}>{{ label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+        {% endif %}
 
         <div class="stats-filters__field">
             <label for="filter-patch-from">From patch</label>

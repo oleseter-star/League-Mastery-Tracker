@@ -353,6 +353,94 @@ class MatchStatisticsService:
             ("person_id", "person_name", "other_person_id", "other_person_name"),
         )
 
+    def games(
+        self,
+        filters=MatchStatisticsFilter(),
+        ally_champion_id=None,
+        ally_position=None,
+        enemy_champion_id=None,
+        enemy_position=None,
+        limit=25,
+        offset=0,
+    ):
+        """
+        Return the games behind a statistic, newest first.
+
+        Every filter applies as in the other views. ally_* and enemy_*
+        keep games with that champion, optionally in that position, on
+        the same or the other team. Each game appears once, seen from one
+        tracked participant. Returns total, wins, and one page of
+        (match, participant) pairs.
+        """
+
+        tracked = aliased(MatchParticipant, name="tracked")
+
+        query = (
+            db.session.query(
+                Match.id,
+                Match.game_creation,
+                func.min(tracked.id),
+                func.max(case((tracked.win.is_(True), 1), else_=0)),
+            )
+            .select_from(tracked)
+            .join(Match, tracked.match_id == Match.id)
+            .join(RiotAccount, tracked.riot_account_id == RiotAccount.id)
+        )
+        query = self._apply_filters(query, tracked, filters)
+
+        if ally_champion_id is not None:
+            query = query.filter(
+                self._has_other(tracked, True, ally_champion_id, ally_position)
+            )
+
+        if enemy_champion_id is not None:
+            query = query.filter(
+                self._has_other(tracked, False, enemy_champion_id, enemy_position)
+            )
+
+        rows = (
+            query
+            .group_by(Match.id, Match.game_creation)
+            .order_by(Match.game_creation.desc(), Match.id.desc())
+            .all()
+        )
+
+        page = rows[max(0, offset):max(0, offset) + max(0, limit)]
+        participants = {
+            participant.id: participant
+            for participant in MatchParticipant.query.filter(
+                MatchParticipant.id.in_([row[2] for row in page])
+            )
+        }
+
+        return {
+            "total": len(rows),
+            "wins": sum(row[3] for row in rows),
+            "games": [
+                (participants[row[2]].match, participants[row[2]])
+                for row in page
+            ],
+        }
+
+    @staticmethod
+    def _has_other(tracked, same_team, riot_champion_id, team_position):
+        other = aliased(MatchParticipant, name="other_side")
+        condition = (
+            (other.match_id == tracked.match_id)
+            & (other.id != tracked.id)
+            & (other.riot_champion_id == riot_champion_id)
+        )
+
+        if same_team:
+            condition = condition & (other.team_id == tracked.team_id)
+        else:
+            condition = condition & (other.team_id != tracked.team_id)
+
+        if team_position:
+            condition = condition & (other.team_position == team_position)
+
+        return exists().where(condition)
+
     def summary(self, filters=MatchStatisticsFilter()):
         """
         Count stored games matching the filters, per queue and in total.

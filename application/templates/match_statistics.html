@@ -22,6 +22,13 @@
 {% block page_actions %}
     <a
         class="button button-secondary"
+        href="{{ games_url() }}"
+    >
+        Games
+    </a>
+
+    <a
+        class="button button-secondary"
         href="{{ url_for('match_review.get_review') }}"
     >
         Match review{% if review_count %} ({{ review_count }}){% endif %}
@@ -53,7 +60,7 @@
                     Filters
                 </h2>
 
-                {{ filter_form(url_for('match_statistics.get_statistics'), selected, persons, mode_choices, patch_choices, position_choices, min_game_choices) }}
+                {{ filter_form(url_for('match_statistics.get_statistics'), selected, persons, mode_choices, patch_choices, position_choices, min_game_choices, patch_presets) }}
             </section>
 
             <section
@@ -156,7 +163,11 @@
                                             {% endif %}
                                         </th>
 
-                                        {{ record_cells(row) }}
+                                        {% if selected.person %}
+                                            {{ record_cells(row, games_url(teammate=row.person_id)) }}
+                                        {% else %}
+                                            {{ record_cells(row, games_url(person=row.person_id)) }}
+                                        {% endif %}
                                     </tr>
                                 {% endfor %}
                             </tbody>
@@ -209,7 +220,7 @@
                                             </a>
                                         </th>
 
-                                        {{ record_cells(row) }}
+                                        {{ record_cells(row, games_url(champion=row.riot_champion_id)) }}
                                     </tr>
                                 {% endfor %}
                             </tbody>

@@ -227,6 +227,38 @@ class MatchStatisticsServiceTests(unittest.TestCase):
             (1, 1),
         )
 
+    def test_games_list_the_games_behind_a_statistic(self):
+        ole = MatchStatisticsFilter(person_ids=(self.ole.id,))
+
+        everything = self.service.games(ole)
+        on_lux_vs_zed_mid = self.service.games(
+            MatchStatisticsFilter(person_ids=(self.ole.id,), riot_champion_id=LUX),
+            enemy_champion_id=ZED,
+            enemy_position="MIDDLE",
+        )
+        with_twitch = self.service.games(ole, ally_champion_id=TWITCH)
+        zed_as_ally = self.service.games(ole, ally_champion_id=ZED)
+
+        self.assertEqual((everything["total"], everything["wins"]), (4, 3))
+        self.assertEqual(
+            [match.riot_match_id for match, _participant in everything["games"]],
+            ["EUW1_4", "EUW1_3", "EUW1_2", "EUW1_1"],
+        )
+        self.assertEqual((on_lux_vs_zed_mid["total"], on_lux_vs_zed_mid["wins"]), (3, 2))
+        self.assertEqual([match.riot_match_id for match, _ in with_twitch["games"]], ["EUW1_1"])
+        self.assertEqual(zed_as_ally["total"], 0)
+
+    def test_games_are_paged_and_seen_from_one_tracked_participant(self):
+        page = self.service.games(MatchStatisticsFilter(), limit=2, offset=1)
+
+        self.assertEqual(page["total"], 5)
+        self.assertEqual([match.riot_match_id for match, _ in page["games"]], ["EUW1_4", "EUW1_3"])
+
+        shared = self.service.games(MatchStatisticsFilter(), ally_champion_id=TWITCH)
+        match, participant = shared["games"][0]
+        self.assertEqual(match.riot_match_id, "EUW1_1")
+        self.assertEqual(participant.riot_account_id, self.main.id)
+
     def test_positions_leave_out_games_without_a_role(self):
         rows = self.service.positions(MatchStatisticsFilter(person_ids=(self.ole.id,)))
 

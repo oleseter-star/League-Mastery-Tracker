@@ -191,7 +191,7 @@ class MatchAssignmentService:
         """
 
         return [
-            self._describe_game(match, participants)
+            self.describe_game(match, participants)
             for match, participants in self._review_groups()
         ]
 
@@ -246,7 +246,7 @@ class MatchAssignmentService:
             by_match.setdefault(participant.match, []).append(participant)
 
         return [
-            self._describe_game(match, rows)
+            self.describe_game(match, rows)
             for match, rows in by_match.items()
         ]
 
@@ -311,7 +311,7 @@ class MatchAssignmentService:
     POSITION_ORDER = ("TOP", "JUNGLE", "MIDDLE", "BOTTOM", "UTILITY")
 
     @classmethod
-    def _describe_game(cls, match, participants):
+    def describe_game(cls, match, participants):
         """
         Describe a game for display: both teams with champions, and the
         given tracked accounts with their stats from the stored match data.
@@ -338,6 +338,7 @@ class MatchAssignmentService:
         for participant in match.participants:
             name, image = champion(participant.riot_champion_id)
             teams.setdefault(participant.team_id, []).append({
+                "riot_champion_id": participant.riot_champion_id,
                 "champion_name": name,
                 "champion_image": image,
                 "riot_id_game_name": participant.riot_id_game_name,
@@ -370,6 +371,12 @@ class MatchAssignmentService:
                     participant.played_by_person_id
                     or participant.riot_account.person_id
                 ),
+                "played_by_name": (
+                    participant.played_by_person.display_name
+                    if participant.played_by_person is not None
+                    else participant.riot_account.person.display_name
+                ),
+                "ignored": participant.ignored,
                 "champion_name": name,
                 "champion_image": image,
                 "team_position": participant.team_position,

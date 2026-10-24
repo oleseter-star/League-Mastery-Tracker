@@ -28,7 +28,7 @@
     </a>
 {% endblock %}
 
-{% macro role_tables(rows_by_role, heading_prefix, lane_role=none, skip_role=none) %}
+{% macro role_tables(rows_by_role, heading_prefix, side, lane_role=none, skip_role=none) %}
     <div class="stats-roles">
         {% for position, rows in rows_by_role.items() if position != skip_role %}
             <section
@@ -55,12 +55,21 @@
 
                         <tbody>
                             {% for row in rows[:8] %}
+                                {% if side == "ally" %}
+                                    {% set link = games_url(champion=champion.riot_champion_id, ally=row.riot_champion_id, ally_role=position) %}
+                                {% else %}
+                                    {% set link = games_url(champion=champion.riot_champion_id, enemy=row.riot_champion_id, enemy_role=position) %}
+                                {% endif %}
                                 <tr>
                                     <th scope="row">
-                                        <span class="stats-champion">
+                                        <a
+                                            class="stats-champion"
+                                            href="{{ link }}"
+                                            title="Show games {{ 'with' if side == 'ally' else 'against' }} {{ row.champion_name or ('Champion ' ~ row.riot_champion_id) }}"
+                                        >
                                             {{ champion_icon(row.champion_name or ("Champion " ~ row.riot_champion_id), row.champion_image, 28) }}
-                                            <span title="{{ row.champion_name or ("Champion " ~ row.riot_champion_id) }}">{{ row.champion_name or ("Champion " ~ row.riot_champion_id) }}</span>
-                                        </span>
+                                            <span>{{ row.champion_name or ("Champion " ~ row.riot_champion_id) }}</span>
+                                        </a>
                                     </th>
                                     <td class="numeric" title="{{ row.wins }}–{{ row.losses }}">{{ row.games }}</td>
                                     <td class="numeric">{{ win_rate_cell(row) }}</td>
@@ -95,7 +104,7 @@
                 Filters
             </h2>
 
-            {{ filter_form(url_for('match_statistics.get_champion', riot_champion_id=champion.riot_champion_id), selected, persons, mode_choices, patch_choices, position_choices, min_game_choices) }}
+            {{ filter_form(url_for('match_statistics.get_champion', riot_champion_id=champion.riot_champion_id), selected, persons, mode_choices, patch_choices, position_choices, min_game_choices, patch_presets) }}
         </section>
 
         <section
@@ -120,6 +129,17 @@
                     {% endif %}
                 </div>
             </div>
+
+            {% if record %}
+                <p>
+                    <a
+                        class="button button-secondary"
+                        href="{{ games_url(champion=champion.riot_champion_id) }}"
+                    >
+                        Show {{ record.games }} game{{ "s" if record.games != 1 }}
+                    </a>
+                </p>
+            {% endif %}
 
             {% if roles %}
                 <ul class="stats-role-chips">
@@ -148,7 +168,7 @@
                     </div>
                 </div>
 
-                {{ role_tables(allies_by_role, "With", skip_role=main_role) }}
+                {{ role_tables(allies_by_role, "With", "ally", skip_role=main_role) }}
             </section>
 
             <section
@@ -164,7 +184,7 @@
                     </div>
                 </div>
 
-                {{ role_tables(enemies_by_role, "Against", main_role) }}
+                {{ role_tables(enemies_by_role, "Against", "enemy", lane_role=main_role) }}
             </section>
 
             <div class="stats-columns">
@@ -203,7 +223,7 @@
                                                     {{ row.person_name }}
                                                 {% endif %}
                                             </th>
-                                            {{ record_cells(row) }}
+                                            {{ record_cells(row, games_url(champion=champion.riot_champion_id, teammate=row.person_id)) }}
                                         </tr>
                                     {% endfor %}
                                 </tbody>
@@ -244,7 +264,9 @@
                                 {% for row in patches[:12] %}
                                     <tr>
                                         <th scope="row">{{ row.patch | patch_label }}</th>
-                                        <td class="numeric">{{ row.games }}</td>
+                                        <td class="numeric">
+                                            <a class="stats-games-link" href="{{ games_url(champion=champion.riot_champion_id, patches='', patch_from=row.patch, patch_to=row.patch) }}" title="Show these games">{{ row.games }}</a>
+                                        </td>
                                         <td class="numeric">{{ row.wins }}–{{ row.losses }}</td>
                                         <td class="numeric">{{ win_rate_cell(row) }}</td>
                                     </tr>

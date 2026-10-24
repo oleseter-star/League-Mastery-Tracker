@@ -222,6 +222,73 @@ class MatchStatisticsRouteTests(unittest.TestCase):
 
         self.assertIn("have no games on the same team for these filters.", " ".join(page.split()))
 
+    def test_games_page_lists_cards_newest_first(self):
+        status, page = self.get_page(f"/matches/games?person={self.ole.id}")
+        text = " ".join(page.split())
+
+        self.assertEqual(status, 200)
+        self.assertIn("5 games", text)
+        self.assertIn("· 3–2 · 60%", text)
+        self.assertLess(page.index("EUW1_5"), page.index("EUW1_1"))
+        self.assertIn("Ole · Main#EUW", text)
+        self.assertIn("/champions/images/Thresh.png", page)
+
+    def test_games_page_drill_down_by_champion_teammate_ally_and_enemy(self):
+        base = f"/matches/games?person={self.ole.id}&champion={KALISTA}"
+
+        _, on_kalista = self.get_page(base)
+        _, with_friend = self.get_page(f"/matches/games?person={self.ole.id}&with={self.friend.id}")
+        _, with_thresh = self.get_page(f"{base}&ally={THRESH}&ally_role=UTILITY")
+        _, against_ahri_bot = self.get_page(f"{base}&enemy={AHRI}&enemy_role=BOTTOM")
+        _, against_ahri_top = self.get_page(f"{base}&enemy={AHRI}&enemy_role=TOP")
+
+        self.assertIn("4 games", " ".join(on_kalista.split()))
+        self.assertIn("on Kalista", " ".join(on_kalista.split()))
+        self.assertIn("with Friend", " ".join(with_friend.split()))
+        self.assertIn("with Thresh (Support)", " ".join(with_thresh.split()))
+        self.assertIn("against Ahri (Bot)", " ".join(against_ahri_bot.split()))
+        self.assertEqual(against_ahri_bot.count("match-team__member--focus"), 4)
+        self.assertIn("4 games", " ".join(against_ahri_bot.split()))
+        self.assertIn("No games match.", against_ahri_top)
+        # The filter form keeps the drill-down when filters change.
+        self.assertIn(f'<input type="hidden" name="enemy" value="{AHRI}">', against_ahri_bot)
+
+    def test_games_page_pages_through_games(self):
+        for number in range(10, 35):
+            self.add_game(number, 420, "16.21", [(self.main, SETT, 100, "TOP", True)])
+
+        db.session.commit()
+
+        _, first = self.get_page(f"/matches/games?person={self.ole.id}&mode=solo")
+        _, second = self.get_page(f"/matches/games?person={self.ole.id}&mode=solo&page=2")
+
+        self.assertIn("Page 1 of 2", first)
+        self.assertIn(f'href="?person={self.ole.id}&amp;mode=solo&amp;page=2"', first)
+        self.assertIn("EUW1_1", second)
+        self.assertNotIn("EUW1_34", second)
+
+    def test_statistics_link_their_games(self):
+        _, overview = self.get_page(f"/matches?person={self.ole.id}&min_games=1")
+        _, champion = self.get_page(f"/matches/champions/{KALISTA}?person={self.ole.id}&min_games=1")
+        _, together = self.get_page(f"/matches/with/{self.friend.id}?person={self.ole.id}&min_games=1")
+
+        self.assertIn(f"/matches/games?person={self.ole.id}&amp;min_games=1&amp;champion={KALISTA}", overview)
+        self.assertIn(f"/matches/games?person={self.ole.id}&amp;min_games=1&amp;with={self.friend.id}", overview)
+        self.assertIn(f"champion={KALISTA}&amp;ally={THRESH}&amp;ally_role=UTILITY", champion)
+        self.assertIn(f"champion={KALISTA}&amp;enemy={AHRI}&amp;enemy_role=BOTTOM", champion)
+        self.assertIn("Show 4 games", champion)
+        self.assertIn("patch_from=16.21&amp;patch_to=16.21", champion)
+        self.assertIn("Show 4 games together", together)
+        self.assertIn(f"person={self.friend.id}&amp;min_games=1&amp;champion={THRESH}&amp;with={self.ole.id}", together)
+
+    def test_patch_presets_select_the_newest_patches(self):
+        _, latest = self.get_page(f"/matches?person={self.ole.id}&patches=latest&min_games=1")
+        _, unknown = self.get_page(f"/matches?person={self.ole.id}&patches=forever&min_games=1")
+
+        self.assertIn("Win rate (1–2)", latest)
+        self.assertIn('<option value="latest" selected>Latest patch</option>', latest)
+        self.assertIn("Win rate (3–2)", unknown)
+
     def test_empty_database_explains_how_to_start(self):
         for match in Match.query.all():
             db.session.delete(match)

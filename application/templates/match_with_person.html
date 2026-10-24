@@ -41,7 +41,7 @@
     {% endif %}
 {% endmacro %}
 
-{% macro champion_table(rows, link_champions) %}
+{% macro champion_table(rows, link_champions, games_for) %}
     {% if rows %}
         <div class="table-scroll">
             <table class="stats-table">
@@ -70,7 +70,7 @@
                                 {% endif %}
                             </th>
 
-                            {{ record_cells(row) }}
+                            {{ record_cells(row, games_for(row.riot_champion_id)) }}
                         </tr>
                     {% endfor %}
                 </tbody>
@@ -97,7 +97,7 @@
                 Filters
             </h2>
 
-            {{ filter_form(url_for('match_statistics.get_with_person', mate_id=mate.id), selected, persons, mode_choices, patch_choices, position_choices, min_game_choices) }}
+            {{ filter_form(url_for('match_statistics.get_with_person', mate_id=mate.id), selected, persons, mode_choices, patch_choices, position_choices, min_game_choices, patch_presets) }}
         </section>
 
         {% if not person %}
@@ -130,6 +130,15 @@
                 </div>
 
                 {% if record %}
+                    <p>
+                        <a
+                            class="button button-secondary"
+                            href="{{ games_url(teammate=mate.id) }}"
+                        >
+                            Show {{ record.games }} game{{ "s" if record.games != 1 }} together
+                        </a>
+                    </p>
+
                     <div class="count-grid">
                         <div class="count-card">
                             <span class="count-value">{{ record.games }}</span>
@@ -176,7 +185,7 @@
                             </div>
                         </div>
 
-                        {{ champion_table(champions, true) }}
+                        {{ champion_table(champions, true, own_games_url) }}
                     </section>
 
                     <section
@@ -192,7 +201,7 @@
                             </div>
                         </div>
 
-                        {{ champion_table(mate_champions, false) }}
+                        {{ champion_table(mate_champions, false, mate_games_url) }}
                     </section>
                 </div>
             {% endif %}

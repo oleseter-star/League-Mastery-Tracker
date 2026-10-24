@@ -1,8 +1,11 @@
+from urllib.parse import urlencode
+
 from flask import (
     Blueprint,
     abort,
     render_template,
     request,
+    url_for,
 )
 
 from application.database.database import db
@@ -39,6 +42,13 @@ MODE_ORDER = ("solo", "flex", "5s", "clash")
 
 MIN_GAME_CHOICES = (1, 2, 3, 5, 10, 20)
 
+# Quick patch ranges: name -> (label, number of newest stored patches).
+PATCH_PRESETS = {
+    "latest": ("Latest patch", 1),
+    "last3": ("Last 3 patches", 3),
+    "last10": ("Last 10 patches", 10),
+}
+
 DEFAULT_MIN_GAMES = 3
 
 
@@ -70,9 +80,15 @@ def _read_filters():
 
     patch_from = request.args.get("patch_from", "")
     patch_to = request.args.get("patch_to", "")
+    patch_preset = request.args.get("patches", "")
     patches = ()
 
-    if patch_from in available_patches or patch_to in available_patches:
+    if patch_preset in PATCH_PRESETS and available_patches:
+        patches = tuple(available_patches[:PATCH_PRESETS[patch_preset][1]])
+        patch_from = patch_to = ""
+
+    elif patch_from in available_patches or patch_to in available_patches:
+        patch_preset = ""
         low = patch_sort_key(patch_from if patch_from in available_patches else available_patches[-1])
         high = patch_sort_key(patch_to if patch_to in available_patches else available_patches[0])
 
@@ -108,6 +124,7 @@ def _read_filters():
         "modes": modes,
         "patch_from": patch_from if patch_from in available_patches else "",
         "patch_to": patch_to if patch_to in available_patches else "",
+        "patches": patch_preset if patch_preset in PATCH_PRESETS else "",
         "position": position,
         "min_games": min_games,
     }
@@ -129,7 +146,7 @@ def _query_string(selected, **changes):
     for mode in values.get("modes", []):
         parts.append(("mode", mode))
 
-    for name in ("patch_from", "patch_to", "position"):
+    for name in ("patches", "patch_from", "patch_to", "position"):
         if values.get(name):
             parts.append((name, values[name]))
 
@@ -137,6 +154,44 @@ def _query_string(selected, **changes):
         parts.append(("min_games", values["min_games"]))
 
     return "&".join(f"{name}={value}" for name, value in parts)
+
+
+FILTER_NAMES = ("person", "modes", "patches", "patch_from", "patch_to", "position", "min_games")
+
+# Games page drill-down parameters, by their keyword in templates.
+DRILL_DOWN_NAMES = {
+    "champion": "champion",
+    "teammate": "with",
+    "ally": "ally",
+    "ally_role": "ally_role",
+    "enemy": "enemy",
+    "enemy_role": "enemy_role",
+}
+
+
+def _games_url(selected, **parameters):
+    """
+    Link to the games page with the current filters, filter changes, and
+    drill-down parameters such as champion=, teammate=, or enemy=.
+    """
+
+    filter_changes = {
+        name: value
+        for name, value in parameters.items()
+        if name in FILTER_NAMES
+    }
+    drill_down = [
+        (DRILL_DOWN_NAMES[name], value)
+        for name, value in parameters.items()
+        if name in DRILL_DOWN_NAMES and value not in (None, "")
+    ]
+    query = "&".join(
+        part
+        for part in (_query_string(selected, **filter_changes), urlencode(drill_down))
+        if part
+    )
+
+    return url_for("match_statistics.get_games") + (f"?{query}" if query else "")
 
 
 def _filter_context(selected, available_patches):
@@ -154,10 +209,12 @@ def _filter_context(selected, available_patches):
         "persons": persons_with_games,
         "mode_choices": [(mode, queue_label(MODE_QUEUE_IDS[mode])) for mode in MODE_ORDER],
         "patch_choices": [(patch, display_patch(patch)) for patch in available_patches],
+        "patch_presets": [(name, label) for name, (label, _count) in PATCH_PRESETS.items()],
         "position_choices": list(POSITION_NAMES.items()),
         "min_game_choices": MIN_GAME_CHOICES,
         "query_string": _query_string(selected),
         "query_with": lambda **changes: _query_string(selected, **changes),
+        "games_url": lambda **parameters: _games_url(selected, **parameters),
         "review_count": len(MatchAssignmentService().games_to_review()),
         "has_games": Match.query.first() is not None,
     }
@@ -323,8 +380,22 @@ def get_with_person(mate_id):
     )
     record = service.person_overview(_every_row(together))
 
+    def own_games_url(riot_champion_id):
+        return _games_url(selected, champion=riot_champion_id, teammate=mate.id)
+
+    def mate_games_url(riot_champion_id):
+        return _games_url(
+            selected,
+            person=mate.id,
+            position="",
+            champion=riot_champion_id,
+            teammate=person.id,
+        )
+
     return render_template(
         "match_with_person.html",
+        own_games_url=own_games_url,
+        mate_games_url=mate_games_url,
         person=person,
         mate=mate,
         record=record[0] if record else None,
@@ -333,5 +404,133 @@ def get_with_person(mate_id):
         mate_roles=service.positions(_every_row(mate_side)),
         champions=service.champion_overview(together),
         mate_champions=service.champion_overview(mate_side),
+        **context,
+    )
+
+
+GAMES_PER_PAGE = 20
+
+
+def _read_drill_down():
+    """
+    Read the games page's extra selection: the tracked side's champion,
+    a teammate, and an allied or enemy champion with optional roles.
+    """
+
+    def champion(name):
+        riot_champion_id = request.args.get(name, type=int)
+
+        if riot_champion_id is None:
+            return None
+
+        return Champion.query.filter_by(riot_champion_id=riot_champion_id).one_or_none()
+
+    def role(name):
+        value = request.args.get(name, "")
+        return value if value in POSITION_NAMES else ""
+
+    teammate_id = request.args.get("with", type=int)
+    teammate = db.session.get(Person, teammate_id) if teammate_id else None
+
+    return {
+        "champion": champion("champion"),
+        "teammate": teammate,
+        "ally": champion("ally"),
+        "ally_role": role("ally_role"),
+        "enemy": champion("enemy"),
+        "enemy_role": role("enemy_role"),
+    }
+
+
+def _drill_down_parameters(drill_down):
+    parameters = {}
+
+    if drill_down["champion"]:
+        parameters["champion"] = drill_down["champion"].riot_champion_id
+
+    if drill_down["teammate"]:
+        parameters["with"] = drill_down["teammate"].id
+
+    for side in ("ally", "enemy"):
+        if drill_down[side]:
+            parameters[side] = drill_down[side].riot_champion_id
+
+            if drill_down[f"{side}_role"]:
+                parameters[f"{side}_role"] = drill_down[f"{side}_role"]
+
+    return parameters
+
+
+@match_statistics_bp.route(
+    "/matches/games",
+    methods=["GET"],
+)
+def get_games():
+    """
+    Show the games behind a statistic as match cards.
+    """
+
+    statistics_filter, selected, available_patches = _read_filters()
+    drill_down = _read_drill_down()
+    page = max(1, request.args.get("page", 1, type=int))
+
+    games_filter = MatchStatisticsFilter(
+        **{
+            **statistics_filter.__dict__,
+            "riot_champion_id": (
+                drill_down["champion"].riot_champion_id
+                if drill_down["champion"] else None
+            ),
+            "with_person_id": (
+                drill_down["teammate"].id if drill_down["teammate"] else None
+            ),
+            "min_games": 1,
+        }
+    )
+
+    result = MatchStatisticsService().games(
+        games_filter,
+        ally_champion_id=drill_down["ally"].riot_champion_id if drill_down["ally"] else None,
+        ally_position=drill_down["ally_role"] or None,
+        enemy_champion_id=drill_down["enemy"].riot_champion_id if drill_down["enemy"] else None,
+        enemy_position=drill_down["enemy_role"] or None,
+        limit=GAMES_PER_PAGE,
+        offset=(page - 1) * GAMES_PER_PAGE,
+    )
+
+    assignment_service = MatchAssignmentService()
+    games = [
+        assignment_service.describe_game(match, [participant])
+        for match, participant in result["games"]
+    ]
+    page_count = max(1, -(-result["total"] // GAMES_PER_PAGE))
+    drill_parameters = _drill_down_parameters(drill_down)
+    context = _filter_context(selected, available_patches)
+    base_query = "&".join(
+        part for part in (
+            context["query_string"],
+            "&".join(f"{name}={value}" for name, value in drill_parameters.items()),
+        )
+        if part
+    )
+
+    focus_champion_ids = [
+        drill_down[side].riot_champion_id
+        for side in ("ally", "enemy")
+        if drill_down[side]
+    ]
+
+    return render_template(
+        "match_games.html",
+        focus_champion_ids=focus_champion_ids,
+        games=games,
+        total=result["total"],
+        wins=result["wins"],
+        page=page,
+        page_count=page_count,
+        drill_down=drill_down,
+        drill_parameters=drill_parameters,
+        base_query=base_query,
+        person=db.session.get(Person, selected["person"]) if selected["person"] else None,
         **context,
     )
