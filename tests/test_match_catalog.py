@@ -37,6 +37,15 @@ class PatchNameTests(unittest.TestCase):
         self.assertEqual(catalog.parse_patch_selection(["26.18", "16.18"], available), ("16.18",))
 
 
+class PositionNameTests(unittest.TestCase):
+    def test_positions_use_the_names_players_use(self):
+        self.assertEqual(catalog.position_label("UTILITY"), "Support")
+        self.assertEqual(catalog.position_label("MIDDLE"), "Mid")
+        self.assertEqual(catalog.position_label("BOTTOM"), "Bot")
+        self.assertEqual(catalog.position_label(""), "-")
+        self.assertEqual(catalog.position_label("INVALID"), "Invalid")
+
+
 class ModeTests(unittest.TestCase):
     def test_ranked_modes_map_to_queue_ids(self):
         self.assertEqual(catalog.queue_id_for_mode("solo"), 420)

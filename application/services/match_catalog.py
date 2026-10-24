@@ -41,6 +41,27 @@ FIRST_YEAR_NAMED_MAJOR = 15
 YEAR_NAME_OFFSET = 10
 
 
+# Riot's teamPosition values and the names players use for them.
+POSITION_NAMES = {
+    "TOP": "Top",
+    "JUNGLE": "Jungle",
+    "MIDDLE": "Mid",
+    "BOTTOM": "Bot",
+    "UTILITY": "Support",
+}
+
+
+def position_label(team_position):
+    """
+    Show a Riot position the way players name it, for example Support.
+    """
+
+    if not team_position:
+        return "-"
+
+    return POSITION_NAMES.get(team_position, team_position.title())
+
+
 def queue_label(queue_id):
     return QUEUE_NAMES.get(queue_id, f"Queue {queue_id}")
 

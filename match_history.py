@@ -44,6 +44,7 @@ from application.services.match_catalog import (
     MODE_QUEUE_IDS,
     display_patch,
     parse_patch_selection,
+    position_label,
     queue_id_for_mode,
     queue_label,
 )
@@ -398,6 +399,9 @@ def format_table(rows, label_columns):
         if column == "patch":
             return display_patch(row["patch"])
 
+        if column == "team_position":
+            return position_label(row["team_position"])
+
         return str(row[column])
 
     titles = [COLUMN_TITLES[column] for column in label_columns]
@@ -469,7 +473,7 @@ def run_games(arguments, log):
             queue_label(game["queue_id"]),
             display_patch(game["patch"]),
             game["champion_name"] or f"Champion {game['riot_champion_id']}",
-            game["team_position"] or "-",
+            position_label(game["team_position"]),
             "Win" if game["win"] else "Loss",
             "(ignored)" if game["ignored"] else game["played_by"] + (" *" if game["assigned"] else ""),
             ", ".join(game["with_accounts"]) or "-",

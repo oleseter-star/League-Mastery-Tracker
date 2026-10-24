@@ -267,8 +267,9 @@ class MatchHistoryCliTests(unittest.TestCase):
 
         self.run_cli("stats", "positions", "--position", "mid", "--min-games", "1")
 
-        self.assertIn("MIDDLE", self.output())
-        self.assertNotIn("BOTTOM", self.output())
+        self.assertIn("Mid", self.output())
+        self.assertNotIn("MIDDLE", self.output())
+        self.assertNotIn("Bot", self.output())
 
 
     def test_games_lists_an_accounts_games_with_other_tracked_accounts(self):
