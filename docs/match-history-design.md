@@ -122,12 +122,16 @@ Constraints that shape the design:
   as 25.S1.1 and so on). Patches are stored as `16.18` and shown as `26.18`.
 * **Scope.** Only ranked games and Summoner's Rift Clash are imported:
   Ranked Solo/Duo (420), Ranked Flex (440), Ranked 5s (weekend premade
-  ranked, queue ID not yet known), and Clash (700). Normals, ARAM, League
+  ranked, 710), and Clash (700). Normals, ARAM, League
   Classic, and other modes are not imported; casual modes may follow later.
 
 ## Data model
 
-Three additive tables. Existing tables are not changed.
+Three additive tables; existing application tables are not changed.
+Columns added to the match tables after they first shipped on this branch
+(`played_by_person_id`, `ignored`) are added at startup by
+`MatchSchemaService`, because `db.create_all()` never alters existing
+tables.
 
 `matches`: one row per game, shared by every tracked account in it.
 
@@ -195,11 +199,11 @@ For each Riot account, on request only (no automatic network calls):
    from a different key.
 5. Commit after each game, so an interrupted import keeps its progress.
 
-Listing by type rather than by queue ID means Ranked 5s is imported even
-though its queue ID is not known yet. The probe finds that ID: it lists all
-ranked games, removes the Solo/Duo and Flex games, and reads the queue ID
-of a few of the rest. Once known, the ID gets the mode name `5s` in
-`match_catalog.py`.
+Listing by type rather than by queue ID imports every ranked queue,
+including queues the app does not name yet. That is how Ranked 5s was
+found: the probe lists all ranked games, removes the Solo/Duo and Flex
+games, and reads the queue ID of a few of the rest. It reported 710, which
+now has the mode name `5s` in `match_catalog.py`.
 
 The import accepts a budget (maximum games per run) and a progress callback.
 That supports both a command-line import and, later, a background import
@@ -242,34 +246,33 @@ change (manifest, builder, validation, merge) and a new additive table for
 champion classes. Once that exists, useful groupings include number of tanks
 or fighters per team, ranged versus melee, and an approximate damage profile.
 
-## User interface options
+## User interface
 
-Not decided. Options to choose from:
+Chosen: a **Match statistics** page with filters and a champions table,
+and a **champion detail** page with results with and against champions by
+role, with tracked Persons, and per patch. **Match review** handles games
+where an account was played by someone other than its owner. A section on
+the Person page was considered and not built.
 
-* **Statistics page** with filters (Persons, queues, dates) and tabs for the
-  views above.
-* **Person page section** showing that Person's champions and positions with
-  win rates next to the existing Mastery.
-* **Champion detail** showing who plays it best and its best allies and
-  hardest enemies.
-
-The import needs a background task with progress, because a first import
-can take far longer than a browser request should.
+The import still runs from the command line. An in-app import needs a
+background task with progress, because a first import can take far longer
+than a browser request should.
 
 ## Phases
 
-1. Probe real accounts (`probe_match_history.py`). Done; waiting for a run.
-2. Backend: tables, Riot match calls with rate limiting, the import service, and
-   statistics service, plus a command-line tool to import and print
-   statistics. Implemented; waiting for a run against real accounts.
-3. Application: background import with progress and the chosen pages.
+1. Probe real accounts (`probe_match_history.py`). Done.
+2. Backend: tables, Riot match calls with rate limiting, the import service,
+   statistics service, and a command-line tool. Done; Ole's accounts are
+   imported.
+3. Application: statistics, champion detail, and Match review pages are
+   done; an in-app background import with progress is not.
 4. Champion classes and team-style views.
-5. Optional: patch filter, JSON export of match data, League Classic view.
+5. Optional: recent-games view with match cards, JSON export of match data,
+   casual modes, League Classic view. Patch filters are done.
 
 ## Open questions
 
-* What is the Ranked 5s queue ID? The probe reports it.
-* Which interface option, or combination, fits best?
+* Should the import move into the application, with a background task?
 * Should casual modes (normals, ARAM) be added later as separate views?
 * Should games where no tracked account remains (after deleting a Person)
   be kept or removed?
