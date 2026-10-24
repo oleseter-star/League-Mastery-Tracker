@@ -1,0 +1,135 @@
+{# Shared building blocks for match history pages. #}
+
+{% macro position_icon(position) %}
+    {% set labels = {
+        "TOP": "Top",
+        "JUNGLE": "Jungle",
+        "MIDDLE": "Middle",
+        "BOTTOM": "Bottom",
+        "UTILITY": "Support",
+    } %}
+
+    {% if position in labels %}
+        <svg
+            class="position-icon"
+            viewBox="0 0 16 16"
+            width="16"
+            height="16"
+            role="img"
+            aria-label="{{ labels[position] }}"
+        >
+            <title>{{ labels[position] }}</title>
+
+            {% if position == "TOP" %}
+                <rect x="1.5" y="1.5" width="13" height="13" rx="1.5" fill="none" stroke="currentColor" stroke-opacity="0.35"/>
+                <path d="M1.5 10V1.5H10" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"/>
+            {% elif position == "MIDDLE" %}
+                <rect x="1.5" y="1.5" width="13" height="13" rx="1.5" fill="none" stroke="currentColor" stroke-opacity="0.35"/>
+                <path d="M3.5 12.5L12.5 3.5" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"/>
+            {% elif position == "BOTTOM" %}
+                <rect x="1.5" y="1.5" width="13" height="13" rx="1.5" fill="none" stroke="currentColor" stroke-opacity="0.35"/>
+                <path d="M6 14.5H14.5V6" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"/>
+            {% elif position == "JUNGLE" %}
+                <path d="M4 2.5C6 6 6 10 4.5 14M8 1.5C9.5 5.5 9.5 10 8 14.5M12 2.5C10.5 6 10.5 10 11.5 14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+            {% else %}
+                <path d="M8 1.5L13.5 3.5V8C13.5 11 11 13.5 8 14.5C5 13.5 2.5 11 2.5 8V3.5Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>
+                <path d="M8 5V11M5 8H11" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+            {% endif %}
+        </svg>
+    {% endif %}
+{% endmacro %}
+
+{% macro champion_icon(name, image, size=40, class_name="") %}
+    {% if image %}
+        <img
+            class="match-champion {{ class_name }}"
+            src="{{ url_for('champion_images.champion_image', image_filename=image) }}"
+            alt="{{ name }}"
+            title="{{ name }}"
+            width="{{ size }}"
+            height="{{ size }}"
+            loading="lazy"
+        >
+    {% else %}
+        <span
+            class="match-champion match-champion--missing {{ class_name }}"
+            role="img"
+            aria-label="{{ name }}"
+            title="{{ name }}"
+            style="width: {{ size }}px; height: {{ size }}px;"
+        >
+            ?
+        </span>
+    {% endif %}
+{% endmacro %}
+
+{% macro result_label(win) %}
+    {% if win %}
+        <span class="match-result match-result--win">Victory</span>
+    {% else %}
+        <span class="match-result match-result--loss">Defeat</span>
+    {% endif %}
+{% endmacro %}
+
+{% macro game_header(game) %}
+    <div class="match-card__meta">
+        {{ result_label(game.win) }}
+
+        <span class="match-card__mode">{{ game.queue_id | queue_label }}</span>
+
+        <span class="muted">
+            {{ (game.game_duration_seconds // 60) }}:{{ "%02d" | format(game.game_duration_seconds % 60) }}
+            · Patch {{ game.patch | patch_label }}
+            · {{ game.game_creation.strftime("%Y-%m-%d %H:%M") }} UTC
+        </span>
+    </div>
+{% endmacro %}
+
+{% macro team_strip(game) %}
+    <div class="match-teams">
+        {% for team in game.teams %}
+            <div class="match-team {{ 'match-team--win' if team.win else 'match-team--loss' }}">
+                <span class="sr-only">
+                    {{ "Winning" if team.win else "Losing" }} team:
+                </span>
+
+                {% for member in team.participants %}
+                    <span
+                        class="match-team__member {{ 'match-team__member--tracked' if member.tracked }}{{ ' match-team__member--selected' if member.selected }}"
+                        title="{{ member.champion_name }}{% if member.riot_id_game_name %} · {{ member.riot_id_game_name }}{% endif %}"
+                    >
+                        {{ champion_icon(member.champion_name, member.champion_image, 32) }}
+                    </span>
+                {% endfor %}
+            </div>
+        {% endfor %}
+    </div>
+{% endmacro %}
+
+{% macro account_stats(account) %}
+    <div class="match-stats">
+        <span class="match-stats__kda">
+            <strong>{{ account.kills }}</strong>
+            <span class="muted">/</span>
+            <strong class="match-stats__deaths">{{ account.deaths }}</strong>
+            <span class="muted">/</span>
+            <strong>{{ account.assists }}</strong>
+        </span>
+
+        <span class="muted">
+            {% if account.kda is none %}
+                Perfect KDA
+            {% else %}
+                {{ "%.2f" | format(account.kda) }} KDA
+            {% endif %}
+
+            {% if account.creep_score is not none %}
+                · {{ account.creep_score }} CS ({{ "%.1f" | format(account.creep_score_per_minute) }})
+            {% endif %}
+
+            {% if account.damage_to_champions %}
+                · {{ "{:,}".format(account.damage_to_champions).replace(",", " ") }} damage
+            {% endif %}
+        </span>
+    </div>
+{% endmacro %}

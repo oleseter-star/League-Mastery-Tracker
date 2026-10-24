@@ -1279,23 +1279,57 @@ tbody tr:hover {
         animation-iteration-count: 1 !important;
     }
 }
-/* Match review */
 
-.match-review__list {
+
+/* Match history */
+
+.match-list {
     display: grid;
     gap: var(--space-4);
+    margin: 0;
+    padding: 0;
+    list-style: none;
 }
 
-.match-review__item {
+.match-list--compact {
+    gap: var(--space-2);
+}
+
+.match-card {
+    --match-accent: var(--color-border-strong);
+    --match-tint: transparent;
+
     display: grid;
-    gap: var(--space-3);
-    padding: var(--space-4);
+    gap: var(--space-4);
+    padding: var(--space-4) var(--space-4) var(--space-4) var(--space-5);
     border: 1px solid var(--color-border);
+    border-left: 4px solid var(--match-accent);
     border-radius: var(--radius-md);
-    background: var(--color-surface-muted);
+    background:
+        linear-gradient(
+            90deg,
+            var(--match-tint) 0,
+            transparent 18rem
+        ),
+        var(--color-surface-muted);
 }
 
-.match-review__item-header {
+.match-card--win {
+    --match-accent: var(--color-primary);
+    --match-tint: rgb(96 165 250 / 0.1);
+}
+
+.match-card--loss {
+    --match-accent: var(--color-danger-border);
+    --match-tint: rgb(248 113 113 / 0.1);
+}
+
+.match-card--compact {
+    gap: 0;
+    padding-block: var(--space-3);
+}
+
+.match-card__header {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
@@ -1303,15 +1337,224 @@ tbody tr:hover {
     gap: var(--space-2) var(--space-4);
 }
 
-.match-review__game {
-    display: grid;
-    gap: var(--space-1);
-    margin: 0;
-}
-
-.match-review__played-by {
+.match-card__meta {
     display: flex;
     flex-wrap: wrap;
+    align-items: baseline;
+    gap: var(--space-1) var(--space-3);
+}
+
+.match-review__ignore-all button {
+    white-space: nowrap;
+}
+
+.match-card__mode {
+    font-weight: var(--font-weight-semibold);
+}
+
+.match-result {
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-bold);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+}
+
+.match-result--win {
+    color: var(--color-primary);
+}
+
+.match-result--loss {
+    color: var(--color-danger);
+}
+
+.match-card__body {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: start;
+    gap: var(--space-4) var(--space-6);
+}
+
+.match-accounts {
+    display: grid;
+    gap: var(--space-3);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.match-account {
+    display: grid;
+    grid-template-columns: auto minmax(8rem, 1fr) minmax(10rem, 1.4fr) auto;
+    align-items: center;
+    gap: var(--space-2) var(--space-4);
+    padding: var(--space-2) var(--space-3);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    background: var(--color-surface);
+}
+
+.match-account__champion {
+    position: relative;
+    width: 3rem;
+    height: 3rem;
+}
+
+.match-account__position {
+    position: absolute;
+    right: -0.4rem;
+    bottom: -0.4rem;
+    display: grid;
+    place-items: center;
+    width: 1.5rem;
+    height: 1.5rem;
+    border: 1px solid var(--color-border-strong);
+    border-radius: 50%;
+    background: var(--color-bg);
+    color: var(--color-text-secondary);
+}
+
+.match-account__position:empty {
+    display: none;
+}
+
+.match-account__identity {
+    display: grid;
+    min-width: 0;
+}
+
+.match-account__identity span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.match-account__played-by {
+    display: flex;
+    flex-wrap: nowrap;
     align-items: center;
     gap: var(--space-2);
+}
+
+.match-account__played-by label {
+    color: var(--color-text-muted);
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-medium);
+    white-space: nowrap;
+}
+
+.match-account__played-by select {
+    width: auto;
+    min-width: 9rem;
+    min-height: 2.4rem;
+    padding-block: 0.4rem;
+}
+
+.match-account__played-by button {
+    min-height: 2.4rem;
+}
+
+.match-stats {
+    display: grid;
+    gap: 0.1rem;
+    font-variant-numeric: tabular-nums;
+}
+
+.match-stats__kda {
+    font-size: var(--font-size-lg);
+    letter-spacing: 0.02em;
+}
+
+.match-stats__deaths {
+    color: var(--color-danger);
+}
+
+.match-champion {
+    display: inline-grid;
+    place-items: center;
+    flex: none;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    background: var(--color-surface-raised);
+    color: var(--color-text-muted);
+    object-fit: cover;
+}
+
+.match-account__champion .match-champion {
+    width: 3rem;
+    height: 3rem;
+    border-radius: var(--radius-md);
+}
+
+.match-teams {
+    display: grid;
+    gap: var(--space-2);
+    padding-top: var(--space-1);
+}
+
+.match-team {
+    display: flex;
+    gap: var(--space-1);
+    padding: var(--space-1);
+    border-radius: var(--radius-sm);
+    border-left: 3px solid var(--color-border-strong);
+}
+
+.match-team--win {
+    border-left-color: var(--color-primary);
+}
+
+.match-team--loss {
+    border-left-color: var(--color-danger-border);
+}
+
+.match-team__member {
+    display: inline-grid;
+    border-radius: var(--radius-sm);
+}
+
+.match-team__member .match-champion {
+    width: 2rem;
+    height: 2rem;
+    opacity: 0.7;
+}
+
+.match-team__member--tracked .match-champion {
+    opacity: 1;
+    border-color: var(--color-text-secondary);
+}
+
+.match-team__member--selected .match-champion {
+    outline: 2px solid var(--color-warning);
+    outline-offset: 1px;
+}
+
+.match-compact__accounts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2) var(--space-4);
+}
+
+.match-compact__account {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+}
+
+.position-icon {
+    display: block;
+}
+
+@media (max-width: 60rem) {
+    .match-card__body {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .match-account {
+        grid-template-columns: auto minmax(0, 1fr);
+    }
+
+    .match-stats,
+    .match-account__played-by {
+        grid-column: 1 / -1;
+    }
 }

@@ -1,4 +1,6 @@
+import json
 import unittest
+import zlib
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -13,6 +15,7 @@ from application.database.models import (
     Person,
     RiotAccount,
 )
+from application.routes.champion_images import champion_images_bp
 from application.routes.match_review import match_review_bp
 from application.services.match_assignment_service import (
     MatchAssignmentService,
@@ -56,6 +59,7 @@ class MatchReviewTestCase(unittest.TestCase):
         db.init_app(self.app)
         self.app.register_blueprint(home_bp)
         self.app.register_blueprint(match_review_bp)
+        self.app.register_blueprint(champion_images_bp)
         self.app.jinja_env.globals["csrf_token"] = lambda: "test-csrf-token"
         self.app_context = self.app.app_context()
         self.app_context.push()
@@ -68,7 +72,7 @@ class MatchReviewTestCase(unittest.TestCase):
         self.shared = RiotAccount(person=self.ole, game_name="Shared", tag_line="EUW", puuid="p-shared", platform_region="EUW1")
 
         for riot_champion_id, name in ((KALISTA, "Kalista"), (ALISTAR, "Alistar"), (SETT, "Sett")):
-            db.session.add(Champion(riot_champion_id=riot_champion_id, name=name, source="bundled"))
+            db.session.add(Champion(riot_champion_id=riot_champion_id, name=name, image=f"{name}.png", source="bundled"))
 
         db.session.add_all([self.ole, self.per, self.iver])
         db.session.commit()
@@ -201,6 +205,43 @@ class MatchReviewServiceTests(MatchReviewTestCase):
             self.service.set_played_by(self.shared_participant(1).id, 999)
 
 
+    def test_review_games_describe_both_teams_and_account_stats(self):
+        match = self.match(3)
+        match.participants.append(
+            MatchParticipant(participant_id=6, riot_champion_id=SETT, team_id=200, team_position="TOP", win=False)
+        )
+        match.raw_data = zlib.compress(json.dumps({
+            "info": {
+                "participants": [
+                    {"participantId": 1, "totalMinionsKilled": 200, "neutralMinionsKilled": 10, "totalDamageDealtToChampions": 25000},
+                    {"participantId": 2, "totalMinionsKilled": 30, "neutralMinionsKilled": 0, "totalDamageDealtToChampions": 9000},
+                ]
+            }
+        }).encode("utf-8"))
+        db.session.commit()
+
+        game = next(game for game in self.service.games_to_review() if game["riot_match_id"] == "EUW1_3")
+        main, shared = game["accounts"]
+
+        self.assertTrue(game["win"])
+        self.assertEqual([(team["team_id"], team["win"]) for team in game["teams"]], [(100, True), (200, False)])
+        self.assertEqual(
+            [(member["champion_name"], member["tracked"], member["selected"]) for member in game["teams"][0]["participants"]],
+            [("Kalista", True, True), ("Sett", True, True)],
+        )
+        self.assertEqual(game["teams"][1]["participants"][0]["champion_image"], "Sett.png")
+        self.assertFalse(game["teams"][1]["participants"][0]["tracked"])
+        self.assertEqual((main["creep_score"], round(main["creep_score_per_minute"], 1), main["damage_to_champions"]), (210, 7.0, 25000))
+        self.assertEqual(shared["champion_image"], "Sett.png")
+
+    def test_missing_match_data_leaves_stats_empty(self):
+        game = self.service.games_to_review()[0]
+
+        self.assertIsNone(game["accounts"][0]["creep_score"])
+        self.assertIsNone(game["accounts"][0]["damage_to_champions"])
+        self.assertIsNone(game["accounts"][0]["kda"])
+
+
 class MatchReviewRouteTests(MatchReviewTestCase):
     def test_review_page_lists_games_with_choices(self):
         response = self.client.get("/matches/review")
@@ -213,6 +254,10 @@ class MatchReviewRouteTests(MatchReviewTestCase):
         self.assertEqual(page.count("Ignore game"), 3)
         self.assertEqual(page.count('/played-by"'), 6)
         self.assertIn("Ole (owner)", page)
+        self.assertIn("/champions/images/Alistar.png", page)
+        self.assertIn("Victory", page)
+        self.assertIn("Defeat", page)
+        self.assertIn('aria-label="Bottom"', page)
         self.assertIn("Ranked Solo/Duo", page)
         self.assertIn("Patch 26.21", page)
         self.assertIn("No games are ignored.", page)

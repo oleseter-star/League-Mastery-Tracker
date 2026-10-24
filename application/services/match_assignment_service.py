@@ -1,3 +1,4 @@
+import zlib
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional
@@ -307,11 +308,86 @@ class MatchAssignmentService:
             reverse=True,
         )
 
-    @staticmethod
-    def _describe_game(match, participants):
-        champion_names = dict(
-            db.session.query(Champion.riot_champion_id, Champion.name).all()
-        )
+    POSITION_ORDER = ("TOP", "JUNGLE", "MIDDLE", "BOTTOM", "UTILITY")
+
+    @classmethod
+    def _describe_game(cls, match, participants):
+        """
+        Describe a game for display: both teams with champions, and the
+        given tracked accounts with their stats from the stored match data.
+        """
+
+        champions = {
+            riot_champion_id: (name, image)
+            for riot_champion_id, name, image in db.session.query(
+                Champion.riot_champion_id,
+                Champion.name,
+                Champion.image,
+            )
+        }
+        stats_by_slot = cls._stats_by_participant_slot(match)
+        minutes = max(match.game_duration_seconds / 60, 1)
+        selected_ids = {participant.id for participant in participants}
+
+        def champion(riot_champion_id):
+            name, image = champions.get(riot_champion_id, (None, None))
+            return name or f"Champion {riot_champion_id}", image
+
+        teams = {}
+
+        for participant in match.participants:
+            name, image = champion(participant.riot_champion_id)
+            teams.setdefault(participant.team_id, []).append({
+                "champion_name": name,
+                "champion_image": image,
+                "riot_id_game_name": participant.riot_id_game_name,
+                "team_position": participant.team_position,
+                "tracked": participant.riot_account_id is not None,
+                "selected": participant.id in selected_ids,
+                "win": participant.win,
+            })
+
+        accounts = []
+
+        for participant in participants:
+            name, image = champion(participant.riot_champion_id)
+            stats = stats_by_slot.get(participant.participant_id, {})
+            creep_score = (
+                int(stats.get("totalMinionsKilled") or 0)
+                + int(stats.get("neutralMinionsKilled") or 0)
+            )
+            deaths = participant.deaths
+
+            accounts.append({
+                "participant_id": participant.id,
+                "riot_id": (
+                    f"{participant.riot_account.game_name}"
+                    f"#{participant.riot_account.tag_line}"
+                ),
+                "owner_id": participant.riot_account.person_id,
+                "owner_name": participant.riot_account.person.display_name,
+                "played_by_id": (
+                    participant.played_by_person_id
+                    or participant.riot_account.person_id
+                ),
+                "champion_name": name,
+                "champion_image": image,
+                "team_position": participant.team_position,
+                "team_id": participant.team_id,
+                "win": participant.win,
+                "kills": participant.kills,
+                "deaths": deaths,
+                "assists": participant.assists,
+                "kda": (
+                    (participant.kills + participant.assists) / deaths
+                    if deaths else None
+                ),
+                "creep_score": creep_score if stats else None,
+                "creep_score_per_minute": creep_score / minutes if stats else None,
+                "damage_to_champions": stats.get("totalDamageDealtToChampions"),
+            })
+
+        win = any(account["win"] for account in accounts)
 
         return {
             "match_id": match.id,
@@ -320,29 +396,48 @@ class MatchAssignmentService:
             "queue_id": match.queue_id,
             "patch": match.patch,
             "game_duration_seconds": match.game_duration_seconds,
-            "accounts": [
+            "win": win,
+            "teams": [
                 {
-                    "participant_id": participant.id,
-                    "riot_id": (
-                        f"{participant.riot_account.game_name}"
-                        f"#{participant.riot_account.tag_line}"
-                    ),
-                    "owner_id": participant.riot_account.person_id,
-                    "owner_name": participant.riot_account.person.display_name,
-                    "played_by_id": (
-                        participant.played_by_person_id
-                        or participant.riot_account.person_id
-                    ),
-                    "champion_name": (
-                        champion_names.get(participant.riot_champion_id)
-                        or f"Champion {participant.riot_champion_id}"
-                    ),
-                    "team_position": participant.team_position,
-                    "team_id": participant.team_id,
-                    "win": participant.win,
+                    "team_id": team_id,
+                    "win": any(member["win"] for member in members),
+                    "participants": sorted(members, key=cls._position_sort_key),
                 }
-                for participant in participants
+                for team_id, members in sorted(teams.items())
             ],
+            "accounts": accounts,
+        }
+
+    @classmethod
+    def _position_sort_key(cls, member):
+        position = member["team_position"]
+
+        if position in cls.POSITION_ORDER:
+            return cls.POSITION_ORDER.index(position)
+
+        return len(cls.POSITION_ORDER)
+
+    @staticmethod
+    def _stats_by_participant_slot(match):
+        """
+        Return Riot's per-participant stats from the stored match data,
+        keyed by participant slot. Empty when no match data is stored.
+        """
+
+        from application.services.match_import_service import (
+            MatchImportService,
+        )
+
+        try:
+            match_data = MatchImportService.decode_raw_data(match) or {}
+        except (ValueError, OSError, zlib.error):
+            return {}
+
+        return {
+            int(stats.get("participantId") or index + 1): stats
+            for index, stats in enumerate(
+                match_data.get("info", {}).get("participants", [])
+            )
         }
 
     @staticmethod
