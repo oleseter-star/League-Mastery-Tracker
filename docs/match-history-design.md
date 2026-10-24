@@ -13,6 +13,10 @@ What exists:
   and a champions table. Each champion opens a detail page with win rates
   with and against champions grouped by role (lane opponent marked), with
   tracked Persons, and per patch.
+* **Persons** on the statistics page: each person's record, or, with one
+  person selected, win rates with each tracked teammate. A teammate opens
+  a "with" page (`/matches/with/<id>`): the record together, both
+  persons' roles, and both champion pools.
 * **Match review**: games where two accounts of one Person were in the
   same match. Choose who played each account, ignore a game or all games,
   and restore ignored games. Post-game style cards with champion icons,
@@ -47,7 +51,8 @@ Implementation:
   `application/services/match_schema_service.py`;
 * pages: `application/routes/match_statistics.py`,
   `application/routes/match_review.py`, templates `match_statistics.html`,
-  `match_champion.html`, `match_review.html`, `_match_components.html`;
+  `match_champion.html`, `match_with_person.html`, `match_review.html`,
+  `_match_components.html`;
 * command line: `match_history.py`.
 
 ## Command-line use
