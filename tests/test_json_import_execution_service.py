@@ -14,6 +14,7 @@ from application.database.database import db
 from application.database.models import (
     Champion,
     ChampionMastery,
+    ChampionMasteryHistory,
     Person,
     RiotAccount,
 )
@@ -325,6 +326,100 @@ class JsonImportExecutionServiceTests(
             self.backup_directory.glob(
                 "*.db"
             )
+        )
+
+    def test_imports_mastery_levels_and_history_from_format_two(
+        self
+    ):
+        account = self._account(
+            mastery=[
+                {
+                    "riot_champion_id": 22,
+                    "mastery_points": 5000,
+                    "mastery_level": 4,
+                }
+            ]
+        )
+
+        account["mastery_history"] = [
+            {
+                "riot_champion_id": 22,
+                "recorded_at": "2026-07-01T10:00:00Z",
+                "mastery_points": 1000,
+                "mastery_level": 2,
+            },
+            {
+                "riot_champion_id": 22,
+                "recorded_at": "2026-07-16T11:00:00Z",
+                "mastery_points": 5000,
+                "mastery_level": 4,
+            },
+        ]
+
+        document = self._build_document(
+            champions=[
+                self._champion()
+            ],
+            persons=[
+                self._person(
+                    accounts=[
+                        account
+                    ]
+                )
+            ],
+        )
+
+        document["format_version"] = 2
+        document["database_schema_version"] = 3
+        document["record_counts"][
+            "mastery_history_records"
+        ] = 2
+
+        result = (
+            JsonImportExecutionService
+            .apply_plan(
+                self._build_plan(
+                    document
+                )
+            )
+        )
+
+        self.assertTrue(
+            result["applied"]
+        )
+
+        self.assertEqual(
+            ChampionMastery.query.one().mastery_level,
+            4,
+        )
+
+        self.assertEqual(
+            [
+                (
+                    history.recorded_at,
+                    history.mastery_points,
+                    history.mastery_level,
+                )
+                for history in (
+                    ChampionMasteryHistory.query
+                    .order_by(
+                        ChampionMasteryHistory.recorded_at
+                    )
+                    .all()
+                )
+            ],
+            [
+                (
+                    datetime(2026, 7, 1, 10, 0),
+                    1000,
+                    2,
+                ),
+                (
+                    datetime(2026, 7, 16, 11, 0),
+                    5000,
+                    4,
+                ),
+            ],
         )
 
     def test_applies_complete_import_with_required_backup(

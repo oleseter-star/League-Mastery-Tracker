@@ -43,6 +43,8 @@ It consists of one restricted full-suite run, two sandbox-only local-loopback so
 - Synchronize Champion Mastery for accounts that are stale or for all accounts on demand.
 - Show Mastery points, Champion names, and local Champion images on the Dashboard.
 - Record when each Riot account was Last synchronized.
+- Show each account's Mastery level next to its points.
+- Record Mastery history on every sync, filter a Person's mastery to the points gained in a period (last week, month, 6 months, year, or a custom date range), and open a graph of one champion's history with level-ups marked. History starts with the first sync on a version that records it; earlier gains cannot be reconstructed.
 - Keep Champion reference data available through a Bundled dataset and a Local cache.
 - Preserve an Unknown champion and allow Manual metadata when reference data is incomplete; the Missing metadata page identifies records that need attention.
 - Manage the Riot API key, Portable data, Database backup, Database restore, and Controlled shutdown from Settings.
@@ -193,7 +195,7 @@ Database restore accepts only validated internal backup candidates. Selecting a 
 
 ### JSON export and import
 
-JSON export produces a UTF-8 portable file containing Persons, Riot accounts, Champions, Champion Mastery, format metadata, and counts. Stable relationships use PUUID, Riot Champion IDs, and nesting rather than internal database primary keys. Local secrets are excluded.
+JSON export produces a UTF-8 portable file containing Persons, Riot accounts, Champions, Champion Mastery with levels, Mastery history, format metadata, and counts. Export format version 2 added levels and history; version 1 files still import, without them. Stable relationships use PUUID, Riot Champion IDs, and nesting rather than internal database primary keys. Local secrets are excluded.
 
 JSON import is not Database restore. The application validates and privately stages an export, shows a preview, rejects blocking PUUID conflicts, and requires the exact confirmation text `IMPORT`. Immediately before an import that writes data, it revalidates the source and plan, consumes the staged request so it cannot run twice, and creates a mandatory Safety backup. Database changes run in one transaction and roll back on failure. A no-change plan performs no writes and creates no backup.
 

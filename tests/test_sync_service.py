@@ -1,8 +1,10 @@
+import json
 import unittest
 from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 
 from flask import Flask
+from requests import HTTPError, Response
 
 from application.database.database import db
 from application.database.models import (
@@ -24,12 +26,37 @@ class FakeRiotService:
         self,
         mastery_by_puuid=None,
         failing_puuids=None,
+        foreign_puuids=None,
+        puuid_by_riot_id=None,
     ):
         self.mastery_by_puuid = mastery_by_puuid or {}
         self.failing_puuids = set(
             failing_puuids or []
         )
+        self.foreign_puuids = set(
+            foreign_puuids or []
+        )
+        self.puuid_by_riot_id = puuid_by_riot_id or {}
         self.calls = []
+        self.account_lookups = []
+
+    def get_account_by_riot_id(
+        self,
+        game_name,
+        tag_line,
+        platform_region,
+    ):
+        riot_id = f"{game_name}#{tag_line}"
+
+        self.account_lookups.append(
+            riot_id
+        )
+
+        return {
+            "puuid": self.puuid_by_riot_id[riot_id],
+            "gameName": game_name,
+            "tagLine": tag_line,
+        }
 
     def get_champion_mastery(
         self,
@@ -46,6 +73,26 @@ class FakeRiotService:
         if puuid in self.failing_puuids:
             raise RuntimeError(
                 f"Simulated Riot failure for {puuid}"
+            )
+
+        if puuid in self.foreign_puuids:
+            response = Response()
+            response.status_code = 400
+            response._content = json.dumps(
+                {
+                    "status": {
+                        "message": (
+                            "Bad Request - Exception decrypting "
+                            + puuid
+                        ),
+                        "status_code": 400,
+                    }
+                }
+            ).encode("utf-8")
+
+            raise HTTPError(
+                "400 Client Error: Bad Request",
+                response=response,
             )
 
         return self.mastery_by_puuid.get(
@@ -713,6 +760,197 @@ class SyncServiceTestCase(unittest.TestCase):
                 marker,
                 serialized_result,
             )
+
+    def test_puuid_from_another_api_key_is_refreshed(self):
+        """
+        A PUUID Riot cannot decrypt with the active key is looked up
+        again from the stored Riot ID and the sync is retried.
+        """
+
+        account = self.create_account(
+            puuid="puuid-old-key",
+            game_name="Rekeyed",
+        )
+
+        fake_riot_service = FakeRiotService(
+            mastery_by_puuid={
+                "puuid-new-key": [
+                    {
+                        "championId": 103,
+                        "championPoints": 777,
+                    }
+                ]
+            },
+            foreign_puuids={
+                "puuid-old-key"
+            },
+            puuid_by_riot_id={
+                "Rekeyed#TEST": "puuid-new-key"
+            },
+        )
+
+        result = SyncService(
+            riot_service=fake_riot_service
+        ).sync_all_accounts()
+
+        refreshed_account = db.session.get(
+            RiotAccount,
+            account.id,
+        )
+
+        self.assertEqual(
+            result["updated"],
+            1,
+        )
+
+        self.assertEqual(
+            fake_riot_service.account_lookups,
+            ["Rekeyed#TEST"],
+        )
+
+        self.assertEqual(
+            refreshed_account.puuid,
+            "puuid-new-key",
+        )
+
+        self.assertIsNotNone(
+            refreshed_account.last_sync
+        )
+
+        self.assertEqual(
+            ChampionMastery.query.one().mastery_points,
+            777,
+        )
+
+    def test_other_bad_request_does_not_refresh_puuid(self):
+        """
+        Only Riot's decrypting error triggers a PUUID lookup; any
+        other 400 is raised unchanged.
+        """
+
+        account = self.create_account(
+            puuid="puuid-bad-request",
+            game_name="BadRequest",
+        )
+
+        fake_riot_service = FakeRiotService()
+
+        response = Response()
+        response.status_code = 400
+        response._content = (
+            b'{"status": {"message": "Bad Request", '
+            b'"status_code": 400}}'
+        )
+
+        def reject(puuid, platform_region):
+            raise HTTPError(
+                "400 Client Error: Bad Request",
+                response=response,
+            )
+
+        fake_riot_service.get_champion_mastery = reject
+
+        with self.assertRaises(HTTPError):
+            SyncService(
+                riot_service=fake_riot_service
+            ).sync_mastery(
+                riot_account_id=account.id
+            )
+
+        self.assertEqual(
+            fake_riot_service.account_lookups,
+            [],
+        )
+
+    def test_refreshed_puuid_owned_by_another_account_fails(self):
+        """
+        A refreshed PUUID already stored on another account is not
+        copied, and the account is reported as failed.
+        """
+
+        account = self.create_account(
+            puuid="puuid-old-key",
+            game_name="Duplicate",
+        )
+
+        self.create_account(
+            puuid="puuid-new-key",
+            game_name="Existing",
+        )
+
+        fake_riot_service = FakeRiotService(
+            foreign_puuids={
+                "puuid-old-key"
+            },
+            puuid_by_riot_id={
+                "Duplicate#TEST": "puuid-new-key"
+            },
+        )
+
+        result = SyncService(
+            riot_service=fake_riot_service
+        ).sync_all_accounts()
+
+        self.assertEqual(
+            result["failed"],
+            1,
+        )
+
+        self.assertEqual(
+            db.session.get(
+                RiotAccount,
+                account.id,
+            ).puuid,
+            "puuid-old-key",
+        )
+
+    def test_sync_stores_mastery_level(self):
+        """
+        Riot's championLevel is stored and updated on later syncs.
+        """
+
+        account = self.create_account(
+            puuid="puuid-level",
+            game_name="Level",
+        )
+
+        fake_riot_service = FakeRiotService(
+            mastery_by_puuid={
+                "puuid-level": [
+                    {
+                        "championId": 103,
+                        "championPoints": 21000,
+                        "championLevel": 5,
+                    }
+                ]
+            }
+        )
+
+        service = SyncService(
+            riot_service=fake_riot_service
+        )
+
+        service.sync_mastery(
+            riot_account_id=account.id
+        )
+
+        self.assertEqual(
+            ChampionMastery.query.one().mastery_level,
+            5,
+        )
+
+        fake_riot_service.mastery_by_puuid[
+            "puuid-level"
+        ][0]["championLevel"] = 12
+
+        service.sync_mastery(
+            riot_account_id=account.id
+        )
+
+        self.assertEqual(
+            ChampionMastery.query.one().mastery_level,
+            12,
+        )
 
     def test_unknown_champion_is_created(self):
         """

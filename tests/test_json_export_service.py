@@ -241,14 +241,14 @@ class JsonExportServiceTests(unittest.TestCase):
 
         self.assertEqual(
             document["format_version"],
-            1,
+            2,
         )
 
         self.assertEqual(
             document[
                 "database_schema_version"
             ],
-            1,
+            3,
         )
 
         self.assertEqual(
@@ -271,6 +271,7 @@ class JsonExportServiceTests(unittest.TestCase):
                 "riot_accounts": 3,
                 "champions": 3,
                 "mastery_records": 3,
+                "mastery_history_records": 0,
             },
         )
 

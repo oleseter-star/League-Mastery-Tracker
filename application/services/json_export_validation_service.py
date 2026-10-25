@@ -71,6 +71,19 @@ class JsonExportValidationService:
         "mastery_points",
     }
 
+    # Format version 2 adds Mastery levels and Mastery history.
+    # Version 1 documents remain valid without them.
+    HISTORY_RECORD_COUNT_KEY = "mastery_history_records"
+    HISTORY_ACCOUNT_KEY = "mastery_history"
+    LEVEL_MASTERY_KEY = "mastery_level"
+
+    HISTORY_KEYS = {
+        "riot_champion_id",
+        "recorded_at",
+        "mastery_points",
+        "mastery_level",
+    }
+
     @classmethod
     def validate_document(
         cls,
@@ -114,12 +127,23 @@ class JsonExportValidationService:
             .get_export_format_version()
         )
 
-        if format_version != current_format_version:
+        if format_version > current_format_version:
             raise JsonExportValidationError(
                 "The export format version is unsupported. "
                 f"Document version: {format_version}. "
                 "Supported version: "
                 f"{current_format_version}."
+            )
+
+        has_history = format_version >= 2
+
+        record_count_keys = set(
+            cls.RECORD_COUNT_KEYS
+        )
+
+        if has_history:
+            record_count_keys.add(
+                cls.HISTORY_RECORD_COUNT_KEY
             )
 
         database_schema_version = (
@@ -136,9 +160,11 @@ class JsonExportValidationService:
             .CURRENT_DATABASE_SCHEMA_VERSION
         )
 
+        # Exports from older schemas hold a subset of the current
+        # data; missing Mastery levels are filled in by the next sync.
         if (
             database_schema_version
-            != current_database_schema_version
+            > current_database_schema_version
         ):
             raise JsonExportValidationError(
                 "The export database schema version is "
@@ -156,7 +182,8 @@ class JsonExportValidationService:
 
         expected_counts = (
             cls._validate_record_counts(
-                document["record_counts"]
+                document["record_counts"],
+                record_count_keys,
             )
         )
 
@@ -196,6 +223,7 @@ class JsonExportValidationService:
             cls._validate_persons(
                 persons=persons,
                 champion_ids=champion_ids,
+                has_history=has_history,
             )
         )
 
@@ -204,7 +232,7 @@ class JsonExportValidationService:
         )
 
         for count_name in sorted(
-            cls.RECORD_COUNT_KEYS
+            record_count_keys
         ):
             expected_value = expected_counts[
                 count_name
@@ -222,12 +250,18 @@ class JsonExportValidationService:
                     f"Actual count: {actual_value}."
                 )
 
-        return actual_counts
+        # Callers compare these counts across formats, so only the
+        # counts shared by every format version are returned.
+        return {
+            count_name: actual_counts[count_name]
+            for count_name in cls.RECORD_COUNT_KEYS
+        }
 
     @classmethod
     def _validate_record_counts(
         cls,
         record_counts,
+        record_count_keys,
     ):
         cls._require_mapping(
             record_counts,
@@ -236,7 +270,7 @@ class JsonExportValidationService:
 
         cls._require_exact_keys(
             record_counts,
-            cls.RECORD_COUNT_KEYS,
+            record_count_keys,
             "The record counts section",
         )
 
@@ -248,7 +282,7 @@ class JsonExportValidationService:
                     f"{key}"
                 ),
             )
-            for key in cls.RECORD_COUNT_KEYS
+            for key in record_count_keys
         }
 
     @classmethod
@@ -322,9 +356,28 @@ class JsonExportValidationService:
         cls,
         persons,
         champion_ids,
+        has_history,
     ):
         riot_account_count = 0
         mastery_record_count = 0
+        history_record_count = 0
+
+        account_keys = set(
+            cls.RIOT_ACCOUNT_KEYS
+        )
+
+        mastery_keys = set(
+            cls.MASTERY_KEYS
+        )
+
+        if has_history:
+            account_keys.add(
+                cls.HISTORY_ACCOUNT_KEY
+            )
+
+            mastery_keys.add(
+                cls.LEVEL_MASTERY_KEY
+            )
 
         puuids = set()
 
@@ -379,7 +432,7 @@ class JsonExportValidationService:
 
                 cls._require_exact_keys(
                     account,
-                    cls.RIOT_ACCOUNT_KEYS,
+                    account_keys,
                     account_context,
                 )
 
@@ -459,7 +512,7 @@ class JsonExportValidationService:
 
                     cls._require_exact_keys(
                         mastery_record,
-                        cls.MASTERY_KEYS,
+                        mastery_keys,
                         mastery_context,
                     )
 
@@ -510,7 +563,29 @@ class JsonExportValidationService:
                         ),
                     )
 
+                    if has_history:
+                        cls._require_optional_nonnegative_integer(
+                            mastery_record[
+                                cls.LEVEL_MASTERY_KEY
+                            ],
+                            (
+                                f"{mastery_context} "
+                                "mastery level"
+                            ),
+                        )
+
                     mastery_record_count += 1
+
+                if has_history:
+                    history_record_count += (
+                        cls._validate_history(
+                            account[
+                                cls.HISTORY_ACCOUNT_KEY
+                            ],
+                            champion_ids,
+                            account_context,
+                        )
+                    )
 
                 riot_account_count += 1
 
@@ -524,7 +599,84 @@ class JsonExportValidationService:
             "mastery_records": (
                 mastery_record_count
             ),
+            cls.HISTORY_RECORD_COUNT_KEY: (
+                history_record_count
+            ),
         }
+
+    @classmethod
+    def _validate_history(
+        cls,
+        history_records,
+        champion_ids,
+        account_context,
+    ):
+        """
+        Validate one account's Mastery history and return its size.
+        """
+
+        cls._require_list(
+            history_records,
+            f"{account_context} mastery history",
+        )
+
+        for history_index, history_record in enumerate(
+            history_records
+        ):
+            history_context = (
+                f"{account_context}, mastery history "
+                f"record at index {history_index}"
+            )
+
+            cls._require_mapping(
+                history_record,
+                history_context,
+            )
+
+            cls._require_exact_keys(
+                history_record,
+                cls.HISTORY_KEYS,
+                history_context,
+            )
+
+            riot_champion_id = (
+                cls._require_positive_integer(
+                    history_record[
+                        "riot_champion_id"
+                    ],
+                    (
+                        f"{history_context} "
+                        "Riot champion ID"
+                    ),
+                )
+            )
+
+            if riot_champion_id not in champion_ids:
+                raise JsonExportValidationError(
+                    f"{history_context} references "
+                    "missing Riot champion ID "
+                    f"{riot_champion_id}."
+                )
+
+            cls._validate_utc_timestamp(
+                history_record["recorded_at"],
+                f"{history_context} timestamp",
+                allow_none=False,
+            )
+
+            cls._require_nonnegative_integer(
+                history_record["mastery_points"],
+                f"{history_context} mastery points",
+            )
+
+            cls._require_optional_nonnegative_integer(
+                history_record["mastery_level"],
+                f"{history_context} mastery level",
+            )
+
+        return len(
+            history_records
+        )
 
     @staticmethod
     def _require_mapping(
@@ -678,6 +830,20 @@ class JsonExportValidationService:
             )
 
         return value
+
+    @classmethod
+    def _require_optional_nonnegative_integer(
+        cls,
+        value,
+        context,
+    ):
+        if value is None:
+            return None
+
+        return cls._require_nonnegative_integer(
+            value,
+            context,
+        )
 
     @staticmethod
     def _validate_utc_timestamp(

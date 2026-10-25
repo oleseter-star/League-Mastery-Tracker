@@ -11,6 +11,9 @@ from flask import (
 from requests import HTTPError, RequestException
 
 from application.services.dashboard_service import DashboardService
+from application.services.mastery_history_service import (
+    MasteryHistoryService,
+)
 from application.services.person_service import PersonService
 from application.services.riot_account_service import RiotAccountService
 from application.services.riot_service import RiotService
@@ -96,11 +99,50 @@ def get_persons():
 def get_person(person_id):
     """
     Display one Person and their combined mastery overview.
+
+    The period query parameter limits the overview to mastery
+    gained in that period; custom periods use start and end dates.
     """
+
+    period_key = request.args.get(
+        "period",
+        "all",
+    )
+
+    start_text = request.args.get(
+        "start",
+        "",
+    )
+
+    end_text = request.args.get(
+        "end",
+        "",
+    )
+
+    period_error = None
+
+    try:
+        period = MasteryHistoryService.resolve_period(
+            period=period_key,
+            start_text=start_text,
+            end_text=end_text,
+        )
+
+    except ValueError as error:
+        period = None
+        period_error = str(error)
+
+    # Invalid custom dates keep Custom selected so they can be fixed.
+    selected_period = (
+        period_key
+        if period_key in MasteryHistoryService.PERIOD_LABELS
+        else "all"
+    )
 
     mastery_overview = (
         DashboardService.get_person_mastery_overview(
-            person_id
+            person_id,
+            period=period,
         )
     )
 
@@ -118,11 +160,59 @@ def get_person(person_id):
         "person_detail.html",
         person=mastery_overview["person"],
         riot_accounts=mastery_overview["riot_accounts"],
-        top_champions=mastery_overview["top_champions"],
         champions=mastery_overview["champions"],
         total_mastery=mastery_overview["total_mastery"],
+        history_notes=mastery_overview["history_notes"],
+        period=period,
+        period_key=selected_period,
+        period_labels=MasteryHistoryService.PERIOD_LABELS,
+        period_error=period_error,
+        start_text=start_text,
+        end_text=end_text,
         platform_regions=get_platform_regions(),
         move_target_persons=move_target_persons,
+    )
+
+
+@persons_bp.route(
+    "/persons/<int:person_id>/champions/<int:champion_id>/history",
+    methods=["GET"],
+)
+def get_champion_history(
+    person_id,
+    champion_id,
+):
+    """
+    Return one champion's full mastery history for each of the
+    Person's Riot accounts, for the champion graph.
+    """
+
+    person = PersonService.get_person_by_id(
+        person_id
+    )
+
+    if person is None:
+        abort(404)
+
+    riot_accounts = sorted(
+        person.riot_accounts,
+        key=lambda account: (
+            account.game_name.casefold(),
+            account.tag_line.casefold(),
+            account.id,
+        ),
+    )
+
+    return jsonify(
+        {
+            "champion_id": champion_id,
+            "accounts": (
+                MasteryHistoryService.get_champion_series(
+                    riot_accounts=riot_accounts,
+                    champion_id=champion_id,
+                )
+            ),
+        }
     )
 
 

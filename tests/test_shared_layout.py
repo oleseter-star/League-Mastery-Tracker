@@ -428,7 +428,6 @@ class SharedLayoutTests(
             },
             "total_mastery": 0,
             "riot_accounts": [],
-            "top_champions": [],
             "champions": [],
             "move_target_persons": [],
             "platform_regions": [],

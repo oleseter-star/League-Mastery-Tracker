@@ -786,6 +786,7 @@ input[type="text"],
 input[type="password"],
 input[type="search"],
 input[type="file"],
+input[type="date"],
 select,
 textarea {
     width: 100%;
@@ -1077,6 +1078,130 @@ tbody tr:hover {
     font-variant-numeric: tabular-nums;
 }
 
+.mastery-level {
+    margin-left: 0.4rem;
+    padding: 0.05rem 0.4rem;
+    border: 1px solid var(--color-border);
+    border-radius: 999px;
+    font-size: 0.8em;
+    white-space: nowrap;
+}
+
+
+.champion-history-button {
+    padding: 0;
+    border: 0;
+    background: none;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+
+
+.champion-history-button:hover .champion-name {
+    color: var(--color-link-hover);
+    text-decoration: underline;
+}
+
+
+/* Person mastery period filter */
+
+
+.period-filter {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: var(--space-4);
+    margin-bottom: var(--space-5);
+}
+
+
+.period-filter > .form-field {
+    min-width: 12rem;
+}
+
+
+.period-filter__dates {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-4);
+}
+
+
+.period-filter__dates[hidden] {
+    display: none;
+}
+
+
+.history-notes {
+    margin:
+        0
+        0
+        var(--space-5);
+    padding-left: var(--space-5);
+    color: var(--color-text-muted);
+    font-size: var(--font-size-sm);
+}
+
+
+/* Champion history dialog */
+
+
+.history-dialog {
+    width: min(48rem, calc(100% - 2rem));
+    padding: 0;
+    border:
+        1px solid
+        var(--color-border);
+    border-radius: var(--radius-xl);
+    background: var(--color-surface);
+    color: var(--color-text);
+    box-shadow: var(--shadow-md);
+}
+
+
+.history-dialog::backdrop {
+    background: rgb(0 0 0 / 0.6);
+}
+
+
+.history-dialog__body {
+    display: grid;
+    gap: var(--space-4);
+    padding: var(--space-6);
+}
+
+
+.history-dialog__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-4);
+}
+
+
+.history-dialog__header h2 {
+    margin: 0;
+}
+
+
+.history-dialog__status {
+    margin: 0;
+    color: var(--color-text-secondary);
+}
+
+
+.history-dialog__status[hidden] {
+    display: none;
+}
+
+
+.history-dialog__chart {
+    position: relative;
+    height: min(22rem, 60vh);
+}
+
 
 /* Empty states */
 
@@ -1189,6 +1314,369 @@ tbody tr:hover {
 
 
 /* Responsive behavior */
+
+
+/* Dashboard Person cards */
+
+.person-order-hint {
+    margin:
+        0
+        0
+        var(--space-4);
+    font-size: var(--font-size-sm);
+}
+
+
+.person-grid {
+    display: grid;
+    grid-template-columns:
+        repeat(
+            auto-fill,
+            minmax(
+                min(16.5rem, 100%),
+                1fr
+            )
+        );
+    gap: var(--space-5);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+
+.person-grid.is-saving {
+    opacity: 0.6;
+    pointer-events: none;
+}
+
+
+.person-card {
+    --person-card-accent: var(--color-border);
+
+    position: relative;
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    gap: var(--space-4);
+    overflow: hidden;
+    padding: var(--space-5);
+    border:
+        1px solid
+        var(--color-border);
+    border-top:
+        3px solid
+        var(--person-card-accent);
+    border-radius: var(--radius-lg);
+    background: var(--color-surface);
+    box-shadow: var(--shadow-sm);
+    isolation: isolate;
+    scroll-margin-top: 6rem;
+    transition:
+        border-color var(--transition-fast),
+        box-shadow var(--transition-fast),
+        transform var(--transition-fast);
+}
+
+
+/* Faded portrait of the Person's top champion behind the card. */
+.person-card__art {
+    position: absolute;
+    z-index: -1;
+    top: -1.5rem;
+    right: -1.5rem;
+    width: 11rem;
+    height: 11rem;
+    border-radius: 50%;
+    filter: blur(1px) saturate(1.1);
+    object-fit: cover;
+    opacity: 0.16;
+    pointer-events: none;
+    mask-image:
+        radial-gradient(
+            circle,
+            #000 30%,
+            transparent 70%
+        );
+    -webkit-mask-image:
+        radial-gradient(
+            circle,
+            #000 30%,
+            transparent 70%
+        );
+}
+
+
+.person-card:hover {
+    border-color: var(--color-border-strong);
+    border-top-color: var(--person-card-accent);
+    box-shadow: var(--shadow-md);
+}
+
+
+.person-card--rank-1 {
+    --person-card-accent: #f5c542;
+}
+
+
+.person-card--rank-2 {
+    --person-card-accent: #c0cad6;
+}
+
+
+.person-card--rank-3 {
+    --person-card-accent: #cd8b52;
+}
+
+
+.person-card.is-draggable {
+    cursor: grab;
+}
+
+
+.person-card.is-dragging {
+    border-style: dashed;
+    cursor: grabbing;
+    opacity: 0.5;
+    transform: scale(0.98);
+}
+
+
+.person-card__header {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    gap: var(--space-3);
+}
+
+
+.person-card__position {
+    display: grid;
+    width: 1.9rem;
+    height: 1.9rem;
+    flex: 0 0 auto;
+    place-items: center;
+    border:
+        1px solid
+        var(--person-card-accent);
+    border-radius: 50%;
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-bold);
+}
+
+
+.person-card__header h3 {
+    min-width: 0;
+    flex: 1 1 auto;
+    margin: 0;
+    font-size: var(--font-size-lg);
+}
+
+
+.person-card__order {
+    display: flex;
+    flex: 0 0 auto;
+    gap: var(--space-1);
+}
+
+
+.person-card .person-card__move {
+    display: grid;
+    width: 1.9rem;
+    min-height: 0;
+    height: 1.9rem;
+    padding: 0;
+    place-items: center;
+    border:
+        1px solid
+        var(--color-border);
+    border-radius: var(--radius-sm);
+    background: var(--color-bg-subtle);
+    color: var(--color-text-muted);
+    font-size: 0.7rem;
+    line-height: 1;
+}
+
+
+.person-card .person-card__move:hover:not(:disabled) {
+    border-color: var(--color-border-strong);
+    background: var(--color-surface-raised);
+    color: var(--color-text);
+}
+
+
+.person-card .person-card__move:disabled {
+    cursor: default;
+    opacity: 0.35;
+}
+
+
+.top-champions {
+    display: grid;
+    grid-template-columns:
+        repeat(
+            3,
+            minmax(0, 1fr)
+        );
+    align-items: end;
+    gap: var(--space-2);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+
+.top-champions--empty {
+    display: grid;
+    min-height: 7.5rem;
+    place-items: center;
+    border:
+        1px dashed
+        var(--color-border);
+    border-radius: var(--radius-md);
+    font-size: var(--font-size-sm);
+}
+
+
+.top-champion {
+    --top-champion-ring: var(--color-border-strong);
+
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--space-1);
+    text-align: center;
+}
+
+
+.top-champion--1 {
+    --top-champion-ring: #f5c542;
+}
+
+
+.top-champion--2 {
+    --top-champion-ring: #c0cad6;
+}
+
+
+.top-champion--3 {
+    --top-champion-ring: #cd8b52;
+}
+
+
+.top-champion__portrait {
+    position: relative;
+    display: block;
+    width: 4rem;
+    height: 4rem;
+    margin-bottom: var(--space-1);
+}
+
+
+.top-champion__portrait img,
+.top-champion__placeholder {
+    display: grid;
+    width: 100%;
+    height: 100%;
+    place-items: center;
+    border:
+        2px solid
+        var(--top-champion-ring);
+    border-radius: 50%;
+    background: var(--color-bg-subtle);
+    box-shadow:
+        0 0 0 3px
+        rgb(0 0 0 / 0.25);
+    color: var(--color-text-muted);
+    font-weight: var(--font-weight-bold);
+    object-fit: cover;
+}
+
+
+.top-champion--1 .top-champion__portrait {
+    width: 4.5rem;
+    height: 4.5rem;
+    margin-top: -0.25rem;
+}
+
+
+.top-champion__medal {
+    position: absolute;
+    right: -0.15rem;
+    bottom: -0.15rem;
+    display: grid;
+    width: 1.35rem;
+    height: 1.35rem;
+    place-items: center;
+    border:
+        2px solid
+        var(--color-surface);
+    border-radius: 50%;
+    background: var(--top-champion-ring);
+    color: #111827;
+    font-size: 0.7rem;
+    font-weight: var(--font-weight-bold);
+}
+
+
+.top-champion__name {
+    max-width: 100%;
+    overflow: hidden;
+    font-size: var(--font-size-xs);
+    font-weight: var(--font-weight-semibold);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+
+.top-champion__points {
+    color: var(--color-text-muted);
+    font-size: var(--font-size-xs);
+    font-variant-numeric: tabular-nums;
+}
+
+
+.person-card__stats {
+    display: grid;
+    grid-template-columns:
+        auto
+        1fr;
+    gap:
+        var(--space-2)
+        var(--space-3);
+    margin: 0;
+    padding-top: var(--space-4);
+    border-top:
+        1px solid
+        var(--color-border);
+    font-size: var(--font-size-sm);
+}
+
+
+.person-card__stats .status-item {
+    display: contents;
+}
+
+
+.person-card__stats dt {
+    color: var(--color-text-muted);
+    white-space: nowrap;
+}
+
+
+.person-card__stats dd {
+    margin: 0;
+    font-variant-numeric: tabular-nums;
+    font-weight: var(--font-weight-semibold);
+    text-align: right;
+    white-space: nowrap;
+}
+
+
+.person-card .actions {
+    margin-top: auto;
+}
 
 
 @media (max-width: 52rem) {

@@ -289,6 +289,7 @@ class JsonExportEndToEndTests(unittest.TestCase):
             {
                 "riot_champion_id": 22,
                 "mastery_points": 123456,
+                "mastery_level": None,
             },
         )
 

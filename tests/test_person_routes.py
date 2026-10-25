@@ -1,10 +1,14 @@
 import unittest
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from flask import Blueprint, Flask
 
 from application.database.database import db
 from application.database.models import (
+    Champion,
+    ChampionMastery,
+    ChampionMasteryHistory,
     Person,
     RiotAccount,
 )
@@ -560,6 +564,209 @@ class PersonRouteTestCase(unittest.TestCase):
                 ),
             ),
             self.get_flashed_messages(),
+        )
+
+    def test_person_page_shows_mastery_level_per_account(self):
+        """
+        A stored Mastery level is shown next to that account's points,
+        and a missing level shows no badge.
+        """
+
+        second_account = RiotAccount(
+            person_id=self.source_person.id,
+            game_name="Second Account",
+            tag_line="TWO",
+            puuid="second-route-puuid",
+            platform_region="EUW1",
+        )
+
+        champion = Champion(
+            riot_champion_id=103,
+            name="Ahri",
+            source="manual",
+        )
+
+        db.session.add_all(
+            [
+                second_account,
+                champion,
+            ]
+        )
+
+        db.session.flush()
+
+        db.session.add_all(
+            [
+                ChampionMastery(
+                    riot_account_id=self.riot_account.id,
+                    champion_id=champion.id,
+                    mastery_points=123456,
+                    mastery_level=17,
+                ),
+                ChampionMastery(
+                    riot_account_id=second_account.id,
+                    champion_id=champion.id,
+                    mastery_points=500,
+                    mastery_level=None,
+                ),
+            ]
+        )
+
+        db.session.commit()
+
+        response = self.client.get(
+            f"/persons/{self.source_person.id}"
+        )
+
+        html = response.get_data(
+            as_text=True
+        )
+
+        self.assertEqual(
+            response.status_code,
+            200,
+        )
+
+        self.assertIn(
+            "Lv 17",
+            html,
+        )
+
+        self.assertEqual(
+            html.count(
+                'class="mastery-level"'
+            ),
+            1,
+        )
+
+    def _create_history(self):
+        """
+        Give the account one champion that gained points recently and
+        one that did not.
+        """
+
+        now = datetime.now(
+            timezone.utc
+        ).replace(
+            tzinfo=None
+        )
+
+        gaining = Champion(
+            riot_champion_id=103,
+            name="Ahri",
+            source="manual",
+        )
+
+        idle = Champion(
+            riot_champion_id=266,
+            name="Aatrox",
+            source="manual",
+        )
+
+        db.session.add_all(
+            [
+                gaining,
+                idle,
+            ]
+        )
+
+        db.session.flush()
+
+        for champion, recorded_at, points, level in [
+            (gaining, now - timedelta(days=20), 1000, 2),
+            (gaining, now - timedelta(days=2), 4321, 3),
+            (idle, now - timedelta(days=20), 9000, 5),
+        ]:
+            db.session.add(
+                ChampionMasteryHistory(
+                    riot_account_id=self.riot_account.id,
+                    champion_id=champion.id,
+                    recorded_at=recorded_at,
+                    mastery_points=points,
+                    mastery_level=level,
+                )
+            )
+
+        db.session.commit()
+
+        return gaining
+
+    def test_period_filter_shows_only_champions_with_gains(self):
+        self._create_history()
+
+        response = self.client.get(
+            f"/persons/{self.source_person.id}?period=week"
+        )
+
+        html = response.get_data(
+            as_text=True
+        )
+
+        self.assertEqual(
+            response.status_code,
+            200,
+        )
+
+        self.assertIn(
+            "3 321",
+            html,
+        )
+
+        self.assertIn(
+            "Ahri",
+            html,
+        )
+
+        self.assertNotIn(
+            "Aatrox",
+            html,
+        )
+
+    def test_invalid_custom_period_falls_back_to_all_time(self):
+        response = self.client.get(
+            f"/persons/{self.source_person.id}"
+            "?period=custom&start=2026-10-05&end=2026-10-01"
+        )
+
+        html = response.get_data(
+            as_text=True
+        )
+
+        self.assertEqual(
+            response.status_code,
+            200,
+        )
+
+        self.assertIn(
+            "The start date must be on or before the end date.",
+            html,
+        )
+
+    def test_champion_history_endpoint_returns_series(self):
+        champion = self._create_history()
+
+        response = self.client.get(
+            f"/persons/{self.source_person.id}"
+            f"/champions/{champion.id}/history"
+        )
+
+        self.assertEqual(
+            response.status_code,
+            200,
+        )
+
+        accounts = response.get_json()["accounts"]
+
+        self.assertEqual(
+            [
+                point["mastery_points"]
+                for point in accounts[0]["points"]
+            ],
+            [1000, 4321],
+        )
+
+        self.assertTrue(
+            accounts[0]["points"][1]["level_up"]
         )
 
 

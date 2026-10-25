@@ -1,13 +1,19 @@
 from datetime import datetime, timedelta, timezone
 
+from requests import HTTPError
+
 from application.database.database import db
 from application.database.models import (
     Person,
     RiotAccount,
     Champion,
     ChampionMastery,
+    ChampionMasteryHistory,
 )
 from application.services.champion_service import ChampionService
+from application.services.mastery_history_service import (
+    MasteryHistoryService,
+)
 from application.services.riot_service import RiotService
 
 
@@ -145,12 +151,28 @@ class SyncService:
 
         riot_service = self._get_riot_service()
 
-        mastery_records = riot_service.get_champion_mastery(
-            puuid=riot_account.puuid,
-            platform_region=riot_account.platform_region,
-        )
+        try:
+            mastery_records = riot_service.get_champion_mastery(
+                puuid=riot_account.puuid,
+                platform_region=riot_account.platform_region,
+            )
+
+        except HTTPError as error:
+            if not self._is_foreign_puuid_error(error):
+                raise
+
+            self._refresh_puuid(
+                riot_account
+            )
+
+            mastery_records = riot_service.get_champion_mastery(
+                puuid=riot_account.puuid,
+                platform_region=riot_account.platform_region,
+            )
 
         synchronized_champion_ids = set()
+        previous_values = {}
+        current_values = {}
 
         try:
             for mastery_record in mastery_records:
@@ -172,6 +194,15 @@ class SyncService:
 
                 if mastery_points is None:
                     mastery_points = 0
+
+                mastery_level = mastery_record.get(
+                    "championLevel"
+                )
+
+                if mastery_level is not None:
+                    mastery_level = int(
+                        mastery_level
+                    )
 
                 champion = Champion.query.filter_by(
                     riot_champion_id=riot_champion_id
@@ -205,15 +236,27 @@ class SyncService:
                         riot_account_id=riot_account.id,
                         champion_id=champion.id,
                         mastery_points=int(mastery_points),
+                        mastery_level=mastery_level,
                     )
 
                     db.session.add(
                         mastery
                     )
                 else:
+                    previous_values[champion.id] = (
+                        mastery.mastery_points,
+                        mastery.mastery_level,
+                    )
+
                     mastery.mastery_points = int(
                         mastery_points
                     )
+                    mastery.mastery_level = mastery_level
+
+                current_values[champion.id] = (
+                    int(mastery_points),
+                    mastery_level,
+                )
 
             existing_masteries = (
                 ChampionMastery.query.filter_by(
@@ -234,11 +277,21 @@ class SyncService:
 
             self._remove_unused_classic_champions()
 
-            riot_account.last_sync = datetime.now(
+            sync_time = datetime.now(
                 timezone.utc
             ).replace(
                 tzinfo=None
             )
+
+            MasteryHistoryService.record_sync(
+                riot_account=riot_account,
+                previous_values=previous_values,
+                current_values=current_values,
+                previous_sync=riot_account.last_sync,
+                recorded_at=sync_time,
+            )
+
+            riot_account.last_sync = sync_time
 
             db.session.commit()
 
@@ -249,6 +302,80 @@ class SyncService:
                 ),
                 "last_sync": riot_account.last_sync,
             }
+
+        except Exception:
+            db.session.rollback()
+            raise
+
+    @staticmethod
+    def _is_foreign_puuid_error(error):
+        """
+        Return whether Riot rejected a PUUID as undecryptable.
+
+        Riot encrypts PUUIDs per API key, so a PUUID stored while a
+        different key was active is answered with HTTP 400 and an
+        "Exception decrypting" message. Other 400 errors are left
+        alone so they are reported as they are.
+        """
+
+        response = getattr(
+            error,
+            "response",
+            None,
+        )
+
+        if (
+            response is None
+            or response.status_code != 400
+        ):
+            return False
+
+        try:
+            message = response.json()["status"]["message"]
+
+        except (ValueError, KeyError, TypeError):
+            return False
+
+        return "decrypt" in str(message).lower()
+
+    def _refresh_puuid(
+        self,
+        riot_account,
+    ):
+        """
+        Look up the account's PUUID again with the active API key.
+
+        The stored Riot ID is used, so the account and its cached
+        Champion Mastery are kept instead of being re-added.
+        """
+
+        account_data = self._get_riot_service().get_account_by_riot_id(
+            game_name=riot_account.game_name,
+            tag_line=riot_account.tag_line,
+            platform_region=riot_account.platform_region,
+        )
+
+        puuid = account_data.get("puuid")
+
+        if not puuid:
+            raise ValueError(
+                "Riot account data did not contain a PUUID."
+            )
+
+        conflicting_account = RiotAccount.query.filter(
+            RiotAccount.puuid == puuid,
+            RiotAccount.id != riot_account.id,
+        ).one_or_none()
+
+        if conflicting_account is not None:
+            raise ValueError(
+                "This Riot Account is already stored "
+                "as another account."
+            )
+
+        try:
+            riot_account.puuid = puuid
+            db.session.commit()
 
         except Exception:
             db.session.rollback()
@@ -279,6 +406,12 @@ class SyncService:
             )
 
             if not is_used:
+                # Classic history can only come from imports; it goes
+                # with the champion so no snapshot is left orphaned.
+                ChampionMasteryHistory.query.filter_by(
+                    champion_id=champion.id
+                ).delete()
+
                 db.session.delete(
                     champion
                 )

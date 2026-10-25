@@ -128,6 +128,116 @@ class JsonExportValidationServiceTests(unittest.TestCase):
                 )
             )
 
+    def test_older_database_schema_version_is_accepted(self):
+        for version in [1, 2]:
+            document = self._build_valid_document()
+
+            document["database_schema_version"] = version
+
+            JsonExportValidationService.validate_document(
+                document
+            )
+
+    def _build_format_two_document(self):
+        document = self._build_valid_document()
+
+        document["format_version"] = 2
+        document["database_schema_version"] = 3
+        document["record_counts"][
+            "mastery_history_records"
+        ] = 1
+
+        account = document["data"]["persons"][0][
+            "riot_accounts"
+        ][0]
+
+        for mastery_record in account["champion_mastery"]:
+            mastery_record["mastery_level"] = 5
+
+        account["mastery_history"] = [
+            {
+                "riot_champion_id": (
+                    account["champion_mastery"][0][
+                        "riot_champion_id"
+                    ]
+                ),
+                "recorded_at": "2026-07-01T10:00:00Z",
+                "mastery_points": 100,
+                "mastery_level": None,
+            }
+        ]
+
+        return document
+
+    def test_format_two_document_with_history_is_accepted(self):
+        counts = (
+            JsonExportValidationService
+            .validate_document(
+                self._build_format_two_document()
+            )
+        )
+
+        self.assertNotIn(
+            "mastery_history_records",
+            counts,
+        )
+
+    def test_format_two_history_is_validated(self):
+        for field_name, invalid_value in [
+            ("riot_champion_id", 999999),
+            ("recorded_at", "2026-07-01 10:00"),
+            ("mastery_points", -1),
+        ]:
+            document = self._build_format_two_document()
+
+            document["data"]["persons"][0][
+                "riot_accounts"
+            ][0]["mastery_history"][0][
+                field_name
+            ] = invalid_value
+
+            with self.assertRaises(
+                JsonExportValidationError
+            ):
+                (
+                    JsonExportValidationService
+                    .validate_document(
+                        document
+                    )
+                )
+
+    def test_format_two_history_count_must_match(self):
+        document = self._build_format_two_document()
+
+        document["record_counts"][
+            "mastery_history_records"
+        ] = 5
+
+        with self.assertRaises(
+            JsonExportValidationError
+        ):
+            (
+                JsonExportValidationService
+                .validate_document(
+                    document
+                )
+            )
+
+    def test_newer_database_schema_version_is_rejected(self):
+        document = self._build_valid_document()
+
+        document["database_schema_version"] = 999
+
+        with self.assertRaises(
+            JsonExportValidationError
+        ):
+            (
+                JsonExportValidationService
+                .validate_document(
+                    document
+                )
+            )
+
     def test_incorrect_record_count_is_rejected(self):
         document = self._build_valid_document()
 

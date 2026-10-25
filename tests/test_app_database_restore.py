@@ -480,14 +480,14 @@ class AppDatabaseRestoreTests(unittest.TestCase):
 
         self.assertEqual(
             migration_result["schema_version"],
-            1,
+            3,
         )
 
         self.assertEqual(
             self._read_schema_version(
                 self.database_file
             ),
-            1,
+            3,
         )
 
         self.assertEqual(

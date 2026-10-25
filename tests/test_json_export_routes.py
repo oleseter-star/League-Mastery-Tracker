@@ -350,14 +350,14 @@ class JsonExportRouteTests(unittest.TestCase):
 
         self.assertEqual(
             document["format_version"],
-            1,
+            2,
         )
 
         self.assertEqual(
             document[
                 "database_schema_version"
             ],
-            1,
+            3,
         )
 
         self.assertEqual(

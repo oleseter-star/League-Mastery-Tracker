@@ -558,10 +558,38 @@ class JsonImportPlanService:
                                 "mastery_points"
                             ]
                         ),
+                        # Format version 1 exports have no levels
+                        # or history.
+                        "mastery_level": mastery_record.get(
+                            "mastery_level"
+                        ),
                     }
                     for mastery_record in imported_account[
                         "champion_mastery"
                     ]
+                ]
+
+                history_actions = [
+                    {
+                        "riot_champion_id": (
+                            history_record[
+                                "riot_champion_id"
+                            ]
+                        ),
+                        "recorded_at": history_record[
+                            "recorded_at"
+                        ],
+                        "mastery_points": history_record[
+                            "mastery_points"
+                        ],
+                        "mastery_level": history_record[
+                            "mastery_level"
+                        ],
+                    }
+                    for history_record in imported_account.get(
+                        "mastery_history",
+                        [],
+                    )
                 ]
 
                 account_actions.append(
@@ -589,6 +617,9 @@ class JsonImportPlanService:
                         ],
                         "champion_mastery": (
                             mastery_actions
+                        ),
+                        "mastery_history": (
+                            history_actions
                         ),
                     }
                 )
