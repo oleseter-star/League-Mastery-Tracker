@@ -11,6 +11,67 @@ class DatabaseVersionError(RuntimeError):
     """
 
 
+def _migrate_to_version_2(connection):
+    """
+    Add the Champion Mastery level column.
+
+    A database without the table is left alone; create_all() then
+    creates the table with the column.
+    """
+
+    columns = {
+        row[1]
+        for row in connection.execute(
+            "PRAGMA table_info(champion_masteries)"
+        ).fetchall()
+    }
+
+    if columns and "mastery_level" not in columns:
+        connection.execute(
+            """
+            ALTER TABLE champion_masteries
+            ADD COLUMN mastery_level INTEGER
+            """
+        )
+
+
+def _migrate_to_version_3(connection):
+    """
+    Add the Champion Mastery history table.
+
+    The definition matches ChampionMasteryHistory, so a later
+    create_all() leaves the table unchanged.
+    """
+
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS champion_mastery_history (
+            id INTEGER NOT NULL,
+            riot_account_id INTEGER NOT NULL,
+            champion_id INTEGER NOT NULL,
+            recorded_at DATETIME NOT NULL,
+            mastery_points INTEGER NOT NULL,
+            mastery_level INTEGER,
+            PRIMARY KEY (id),
+            FOREIGN KEY(riot_account_id) REFERENCES riot_accounts (id),
+            FOREIGN KEY(champion_id) REFERENCES champions (id)
+        )
+        """
+    )
+
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS
+            ix_mastery_history_account_champion_time
+        ON champion_mastery_history (
+            riot_account_id,
+            champion_id,
+            recorded_at
+        )
+        """
+    )
+
+
 class DatabaseMigrationService:
     """
     Maintains the internal database schema version.
@@ -20,13 +81,16 @@ class DatabaseMigrationService:
     current schema version.
     """
 
-    CURRENT_DATABASE_SCHEMA_VERSION = 1
-    CURRENT_EXPORT_FORMAT_VERSION = 1
+    CURRENT_DATABASE_SCHEMA_VERSION = 3
+    CURRENT_EXPORT_FORMAT_VERSION = 2
 
     METADATA_TABLE = "application_metadata"
     SCHEMA_VERSION_KEY = "database_schema_version"
 
-    MIGRATIONS = {}
+    MIGRATIONS = {
+        2: _migrate_to_version_2,
+        3: _migrate_to_version_3,
+    }
 
     @classmethod
     def initialize_or_migrate(cls):

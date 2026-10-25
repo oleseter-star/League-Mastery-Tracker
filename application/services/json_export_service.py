@@ -7,6 +7,7 @@ from application.database.database import db
 from application.database.models import (
     Champion,
     ChampionMastery,
+    ChampionMasteryHistory,
     Person,
     RiotAccount,
 )
@@ -114,6 +115,16 @@ class JsonExportService:
                 .all()
             )
 
+            history_records = list(
+                db.session.execute(
+                    db.select(
+                        ChampionMasteryHistory
+                    )
+                )
+                .scalars()
+                .all()
+            )
+
         except SQLAlchemyError as error:
             raise JsonExportError(
                 "The application database could not be read "
@@ -125,6 +136,7 @@ class JsonExportService:
             riot_accounts=riot_accounts,
             champions=champions,
             mastery_records=mastery_records,
+            history_records=history_records,
         )
 
         champion_by_id = {
@@ -150,6 +162,16 @@ class JsonExportService:
                 [],
             ).append(
                 mastery_record
+            )
+
+        history_by_account_id = {}
+
+        for history_record in history_records:
+            history_by_account_id.setdefault(
+                history_record.riot_account_id,
+                [],
+            ).append(
+                history_record
             )
 
         exported_champions = [
@@ -192,11 +214,27 @@ class JsonExportService:
                     ),
                 )
 
+                account_history = sorted(
+                    history_by_account_id.get(
+                        account.id,
+                        [],
+                    ),
+                    key=lambda history_record: (
+                        cls._history_sort_key(
+                            history_record,
+                            champion_by_id,
+                        )
+                    ),
+                )
+
                 exported_accounts.append(
                     cls._serialize_account(
                         account=account,
                         mastery_records=(
                             account_mastery
+                        ),
+                        history_records=(
+                            account_history
                         ),
                         champion_by_id=(
                             champion_by_id
@@ -239,6 +277,9 @@ class JsonExportService:
                 ),
                 "mastery_records": len(
                     mastery_records
+                ),
+                "mastery_history_records": len(
+                    history_records
                 ),
             },
             "data": {
@@ -379,6 +420,7 @@ class JsonExportService:
         cls,
         account,
         mastery_records,
+        history_records,
         champion_by_id,
     ):
         exported_mastery = []
@@ -396,8 +438,29 @@ class JsonExportService:
                     "mastery_points": (
                         mastery_record.mastery_points
                     ),
+                    "mastery_level": (
+                        mastery_record.mastery_level
+                    ),
                 }
             )
+
+        exported_history = [
+            {
+                "riot_champion_id": champion_by_id[
+                    history_record.champion_id
+                ].riot_champion_id,
+                "recorded_at": cls._normalize_datetime(
+                    history_record.recorded_at
+                ),
+                "mastery_points": (
+                    history_record.mastery_points
+                ),
+                "mastery_level": (
+                    history_record.mastery_level
+                ),
+            }
+            for history_record in history_records
+        ]
 
         return {
             "game_name": account.game_name,
@@ -412,6 +475,9 @@ class JsonExportService:
             "champion_mastery": (
                 exported_mastery
             ),
+            "mastery_history": (
+                exported_history
+            ),
         }
 
     @classmethod
@@ -421,6 +487,7 @@ class JsonExportService:
         riot_accounts,
         champions,
         mastery_records,
+        history_records,
     ):
         person_ids = {
             person.id
@@ -461,6 +528,19 @@ class JsonExportService:
                 raise JsonExportError(
                     "A mastery record references a champion "
                     "that does not exist. Export was cancelled."
+                )
+
+        for history_record in history_records:
+            if (
+                history_record.riot_account_id
+                not in account_ids
+                or history_record.champion_id
+                not in champion_ids
+            ):
+                raise JsonExportError(
+                    "A mastery history record references a Riot "
+                    "account or champion that does not exist. "
+                    "Export was cancelled."
                 )
 
     @staticmethod
@@ -553,4 +633,21 @@ class JsonExportService:
                 champion.riot_champion_id
             ),
             mastery_record.id,
+        )
+
+    @staticmethod
+    def _history_sort_key(
+        history_record,
+        champion_by_id,
+    ):
+        champion = champion_by_id[
+            history_record.champion_id
+        ]
+
+        return (
+            history_record.recorded_at,
+            int(
+                champion.riot_champion_id
+            ),
+            history_record.id,
         )

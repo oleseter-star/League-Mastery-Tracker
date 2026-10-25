@@ -195,7 +195,7 @@ class AppDatabaseMigrationTests(unittest.TestCase):
             app.config[
                 "STARTUP_DATABASE_MIGRATION_RESULT"
             ]["schema_version"],
-            1,
+            3,
         )
 
         self.assertEqual(

@@ -39,11 +39,113 @@
                     </h2>
 
                     <p class="card__description">
-                        Combined Champion Mastery across this
-                        person's connected Riot accounts.
+                        {% if period %}
+                            Champion Mastery gained across this
+                            person's connected Riot accounts.
+                        {% else %}
+                            Combined Champion Mastery across this
+                            person's connected Riot accounts.
+                        {% endif %}
                     </p>
                 </div>
             </div>
+
+            {% if period_labels is defined %}
+            <form
+                class="period-filter"
+                method="get"
+                action="{{ url_for('persons.get_person', person_id=person.id) }}"
+                data-period-filter
+            >
+                <div class="form-field">
+                    <label for="period-select">
+                        Time period
+                    </label>
+
+                    <select
+                        id="period-select"
+                        name="period"
+                        data-period-select
+                    >
+                        {% for key, label in period_labels.items() %}
+                            <option
+                                value="{{ key }}"
+                                {% if key == period_key %}selected{% endif %}
+                            >
+                                {{ label }}
+                            </option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <div
+                    class="period-filter__dates"
+                    data-period-dates
+                    {% if period_key != "custom" %}hidden{% endif %}
+                >
+                    <div class="form-field">
+                        <label for="period-start">
+                            From
+                        </label>
+
+                        <input
+                            id="period-start"
+                            type="date"
+                            name="start"
+                            value="{{ start_text }}"
+                        >
+                    </div>
+
+                    <div class="form-field">
+                        <label for="period-end">
+                            To
+                        </label>
+
+                        <input
+                            id="period-end"
+                            type="date"
+                            name="end"
+                            value="{{ end_text }}"
+                        >
+                    </div>
+                </div>
+
+                <button
+                    class="button button-secondary"
+                    type="submit"
+                >
+                    Apply
+                </button>
+            </form>
+            {% endif %}
+
+            {% if period_error %}
+                <p class="form-error" role="alert">
+                    {{ period_error }} Showing all time instead.
+                </p>
+            {% endif %}
+
+            {% if history_notes %}
+                <ul class="history-notes">
+                    {% for note in history_notes %}
+                        <li>
+                            {% if note.tracked_since %}
+                                {{ note.riot_id }}: history starts
+                                <time
+                                    datetime="{{ note.tracked_since.isoformat() }}Z"
+                                    data-local-date
+                                >
+                                    {{ note.tracked_since.strftime("%Y-%m-%d") }}
+                                </time>,
+                                so gains are counted from then.
+                            {% else %}
+                                {{ note.riot_id }}: no history yet.
+                                Gains appear after its next sync.
+                            {% endif %}
+                        </li>
+                    {% endfor %}
+                </ul>
+            {% endif %}
 
             <div class="count-grid">
                 <div class="count-card">
@@ -56,7 +158,11 @@
                     </span>
 
                     <span class="count-label">
-                        Total mastery points
+                        {% if period %}
+                            Mastery gained ({{ period.label | lower }})
+                        {% else %}
+                            Total mastery points
+                        {% endif %}
                     </span>
                 </div>
 
@@ -70,118 +176,6 @@
                     </span>
                 </div>
             </div>
-        </section>
-
-        <section
-            class="card"
-            aria-labelledby="top-champions-heading"
-        >
-            <div class="card__header">
-                <div>
-                    <h2 id="top-champions-heading">
-                        Top 10 champions
-                    </h2>
-
-                    <p class="card__description">
-                        Champions with the highest combined mastery
-                        points across all connected Riot accounts.
-                    </p>
-                </div>
-            </div>
-
-            {% if top_champions %}
-                <div class="table-scroll">
-                    <table>
-                        <caption class="sr-only">
-                            Top champions by combined mastery points
-                        </caption>
-
-                        <thead>
-                            <tr>
-                                <th scope="col">
-                                    Rank
-                                </th>
-
-                                <th scope="col">
-                                    Champion
-                                </th>
-
-                                <th scope="col">
-                                    Total mastery
-                                </th>
-                            </tr>
-                        </thead>
-
-                        <tbody>
-                            {% for champion in top_champions %}
-                                <tr>
-                                    <td>
-                                        {{ loop.index }}
-                                    </td>
-
-                                    <td>
-                                        <div class="champion">
-                                            {% if champion.image %}
-                                                <img
-                                                    class="champion-image"
-                                                    src="{{ url_for(
-                                                        'champion_images.champion_image',
-                                                        image_filename=champion.image
-                                                    ) }}"
-                                                    alt="{{ champion.champion_name }}"
-                                                    width="44"
-                                                    height="44"
-                                                >
-                                            {% else %}
-                                                <span
-                                                    class="champion-placeholder"
-                                                    role="img"
-                                                    aria-label="{{ champion.champion_name }} image unavailable"
-                                                    title="Champion image unavailable"
-                                                >
-                                                    ?
-                                                </span>
-                                            {% endif %}
-
-                                            <span class="champion-name">
-                                                {{ champion.champion_name }}
-                                            </span>
-                                        </div>
-                                    </td>
-
-                                    <td class="mastery-points">
-                                        {{
-                                            "{:,}".format(
-                                                champion.total_mastery
-                                            ).replace(",", " ")
-                                        }}
-                                    </td>
-                                </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
-                </div>
-            {% else %}
-                <div class="empty-state">
-                    <h3>
-                        No mastery data yet
-                    </h3>
-
-                    <p>
-                        This person does not have any stored
-                        Champion Mastery yet. Synchronize a connected
-                        Riot account from the Dashboard to populate
-                        this overview.
-                    </p>
-
-                    <a
-                        class="button button-secondary"
-                        href="/"
-                    >
-                        Go to Dashboard
-                    </a>
-                </div>
-            {% endif %}
         </section>
 
         <section
@@ -230,7 +224,17 @@
                             {% for champion in champions %}
                                 <tr>
                                     <td>
-                                        <div class="champion">
+                                        <button
+                                            class="champion champion-history-button"
+                                            type="button"
+                                            title="Show {{ champion.champion_name }} mastery history"
+                                            data-history-url="{{ url_for(
+                                                'persons.get_champion_history',
+                                                person_id=person.id,
+                                                champion_id=champion.champion_id
+                                            ) }}"
+                                            data-champion-name="{{ champion.champion_name }}"
+                                        >
                                             {% if champion.image %}
                                                 <img
                                                     class="champion-image"
@@ -256,7 +260,7 @@
                                             <span class="champion-name">
                                                 {{ champion.champion_name }}
                                             </span>
-                                        </div>
+                                        </button>
                                     </td>
 
                                     <td class="mastery-points">
@@ -270,6 +274,10 @@
                                     </td>
 
                                     {% for riot_account in riot_accounts %}
+                                        {% set mastery_level = champion.levels_by_account[
+                                            riot_account.id
+                                        ] %}
+
                                         <td class="mastery-points">
                                             {{
                                                 "{:,}".format(
@@ -278,12 +286,32 @@
                                                     ]
                                                 ).replace(",", " ")
                                             }}
+
+                                            {% if mastery_level is not none %}
+                                                <span
+                                                    class="mastery-level"
+                                                    title="Mastery level {{ mastery_level }}"
+                                                >
+                                                    Lv {{ mastery_level }}
+                                                </span>
+                                            {% endif %}
                                         </td>
                                     {% endfor %}
                                 </tr>
                             {% endfor %}
                         </tbody>
                     </table>
+                </div>
+            {% elif period %}
+                <div class="empty-state">
+                    <h3>
+                        No mastery gained
+                    </h3>
+
+                    <p>
+                        No champion gained mastery points in this
+                        period according to the stored history.
+                    </p>
                 </div>
             {% else %}
                 <div class="empty-state">
@@ -677,4 +705,50 @@
             </form>
         </section>
     </div>
+
+    <dialog
+        class="history-dialog"
+        aria-labelledby="history-dialog-heading"
+        data-history-dialog
+    >
+        <div class="history-dialog__body">
+            <div class="history-dialog__header">
+                <h2 id="history-dialog-heading" data-history-title>
+                    Mastery history
+                </h2>
+
+                <button
+                    class="button button-quiet"
+                    type="button"
+                    data-history-close
+                >
+                    Close
+                </button>
+            </div>
+
+            <p class="history-dialog__status" data-history-status></p>
+
+            <div class="history-dialog__chart">
+                <canvas data-history-chart></canvas>
+            </div>
+
+            <p class="form-help">
+                Larger markers show level-ups. Points between syncs are
+                not known, so lines connect one sync to the next.
+            </p>
+        </div>
+    </dialog>
+{% endblock %}
+
+
+{% block scripts %}
+    <script
+        src="{{ url_for('static', filename='js/vendor/chart.umd.js') }}"
+        defer
+    ></script>
+
+    <script
+        src="{{ url_for('static', filename='person_mastery_history.js') }}"
+        defer
+    ></script>
 {% endblock %}

@@ -4,6 +4,7 @@ from flask import (
     flash,
     jsonify,
     redirect,
+    request,
     url_for,
 )
 
@@ -15,6 +16,10 @@ from application.services.champion_reference_update_service import (
     ChampionReferenceUpdateService,
 )
 from application.services.dashboard_service import DashboardService
+from application.services.person_order_service import (
+    PersonOrderError,
+    PersonOrderService,
+)
 from application.services.sync_service import SyncService
 
 
@@ -415,4 +420,89 @@ def refresh_reference_data():
         url_for(
             "home.home"
         )
+    )
+
+
+@dashboard_bp.route(
+    "/dashboard/persons/order",
+    methods=[
+        "POST",
+    ],
+)
+def save_person_order():
+    """
+    Store a complete dashboard Person order.
+
+    The form field person_ids holds comma-separated Person IDs.
+    """
+
+    raw_person_ids = request.form.get(
+        "person_ids",
+        "",
+    )
+
+    person_ids = [
+        person_id.strip()
+        for person_id in raw_person_ids.split(",")
+        if person_id.strip()
+    ]
+
+    try:
+        PersonOrderService.save_order(
+            person_ids
+        )
+
+    except PersonOrderError:
+        flash(
+            "The person order could not be saved. "
+            "Reload the dashboard and try again.",
+            "error",
+        )
+
+    return redirect(
+        url_for(
+            "home.home"
+        )
+        + "#persons-heading"
+    )
+
+
+@dashboard_bp.route(
+    "/dashboard/persons/<int:person_id>/move",
+    methods=[
+        "POST",
+    ],
+)
+def move_person(
+    person_id,
+):
+    """
+    Move one Person one position earlier or later on the dashboard.
+    """
+
+    direction = request.form.get(
+        "direction",
+        "",
+    )
+
+    try:
+        moved = PersonOrderService.move_person(
+            person_id,
+            direction,
+        )
+
+    except PersonOrderError:
+        moved = False
+
+    if not moved:
+        flash(
+            "The person could not be moved.",
+            "error",
+        )
+
+    return redirect(
+        url_for(
+            "home.home"
+        )
+        + f"#person-{person_id}"
     )

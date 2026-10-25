@@ -582,7 +582,7 @@ class PersonNavigationTestCase(unittest.TestCase):
 
         sections = re.findall(
             r'<section\b[^>]*aria-labelledby="'
-            r'(?:top-champions|champion-mastery)-heading"'
+            r'champion-mastery-heading"'
             r'[^>]*>(?P<section>.*?)</section>',
             html,
             flags=re.DOTALL,
@@ -590,7 +590,7 @@ class PersonNavigationTestCase(unittest.TestCase):
 
         self.assertEqual(
             len(sections),
-            2,
+            1,
         )
 
         for section in sections:

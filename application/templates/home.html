@@ -61,24 +61,170 @@
             </div>
 
             {% if persons %}
-                <div class="grid grid--auto">
+                <p
+                    class="person-order-hint muted"
+                    data-person-order-hint
+                    hidden
+                >
+                    Drag a card to change the order, or use the
+                    arrow buttons.
+                </p>
+
+                <form
+                    id="person-order-form"
+                    method="post"
+                    action="/dashboard/persons/order"
+                    hidden
+                >
+                    <input
+                        type="hidden"
+                        name="_csrf_token"
+                        value="{{ csrf_token() }}"
+                    >
+
+                    <input
+                        type="hidden"
+                        name="person_ids"
+                        value=""
+                    >
+                </form>
+
+                <div
+                    class="person-grid"
+                    data-person-grid
+                >
                     {% for person in persons %}
-                        <article class="card card--compact">
-                            <h3>
-                                {{ person.display_name }}
-                            </h3>
+                        {% set top_champion = person.top_champions[0] if person.top_champions else none %}
+                        <article
+                            class="person-card{% if loop.index <= 3 %} person-card--rank-{{ loop.index }}{% endif %}"
+                            id="person-{{ person.id }}"
+                            data-person-id="{{ person.id }}"
+                        >
+                            {% if top_champion and top_champion.image %}
+                                <img
+                                    class="person-card__art"
+                                    src="{{ url_for(
+                                        'champion_images.champion_image',
+                                        image_filename=top_champion.image
+                                    ) }}"
+                                    alt=""
+                                    aria-hidden="true"
+                                    draggable="false"
+                                >
+                            {% endif %}
 
-                            <dl class="status-list">
-                                <div class="status-item">
-                                    <dt>
-                                        Riot accounts
-                                    </dt>
+                            <div class="person-card__header">
+                                <span
+                                    class="person-card__position"
+                                    aria-label="Position {{ loop.index }}"
+                                >
+                                    {{ loop.index }}
+                                </span>
 
-                                    <dd>
-                                        {{ person.riot_account_count }}
-                                    </dd>
-                                </div>
+                                <h3>
+                                    {{ person.display_name }}
+                                </h3>
 
+                                <form
+                                    class="person-card__order"
+                                    method="post"
+                                    action="/dashboard/persons/{{ person.id }}/move"
+                                >
+                                    <input
+                                        type="hidden"
+                                        name="_csrf_token"
+                                        value="{{ csrf_token() }}"
+                                    >
+
+                                    <button
+                                        class="person-card__move"
+                                        type="submit"
+                                        name="direction"
+                                        value="earlier"
+                                        aria-label="Move {{ person.display_name }} earlier"
+                                        title="Move earlier"
+                                        {% if loop.first %}disabled{% endif %}
+                                    >
+                                        &#9664;
+                                    </button>
+
+                                    <button
+                                        class="person-card__move"
+                                        type="submit"
+                                        name="direction"
+                                        value="later"
+                                        aria-label="Move {{ person.display_name }} later"
+                                        title="Move later"
+                                        {% if loop.last %}disabled{% endif %}
+                                    >
+                                        &#9654;
+                                    </button>
+                                </form>
+                            </div>
+
+                            {% if person.top_champions %}
+                                <ol
+                                    class="top-champions"
+                                    aria-label="Top champions for {{ person.display_name }}"
+                                >
+                                    {% for champion in person.top_champions %}
+                                        <li class="top-champion top-champion--{{ loop.index }}">
+                                            <span class="top-champion__portrait">
+                                                {% if champion.image %}
+                                                    <img
+                                                        src="{{ url_for(
+                                                            'champion_images.champion_image',
+                                                            image_filename=champion.image
+                                                        ) }}"
+                                                        alt=""
+                                                        width="64"
+                                                        height="64"
+                                                        loading="lazy"
+                                                        draggable="false"
+                                                    >
+                                                {% else %}
+                                                    <span
+                                                        class="top-champion__placeholder"
+                                                        aria-hidden="true"
+                                                    >
+                                                        ?
+                                                    </span>
+                                                {% endif %}
+
+                                                <span
+                                                    class="top-champion__medal"
+                                                    aria-hidden="true"
+                                                >
+                                                    {{ loop.index }}
+                                                </span>
+                                            </span>
+
+                                            <span class="top-champion__name">
+                                                {{ champion.champion_name }}
+                                            </span>
+
+                                            <span
+                                                class="top-champion__points"
+                                                title="{{ '{:,}'.format(champion.total_mastery).replace(',', ' ') }} mastery points"
+                                            >
+                                                {% if champion.total_mastery >= 1000000 %}
+                                                    {{ '%.1f' | format(champion.total_mastery / 1000000) }}M
+                                                {% elif champion.total_mastery >= 1000 %}
+                                                    {{ champion.total_mastery // 1000 }}k
+                                                {% else %}
+                                                    {{ champion.total_mastery }}
+                                                {% endif %}
+                                            </span>
+                                        </li>
+                                    {% endfor %}
+                                </ol>
+                            {% else %}
+                                <p class="top-champions top-champions--empty muted">
+                                    No Champion Mastery yet
+                                </p>
+                            {% endif %}
+
+                            <dl class="person-card__stats">
                                 <div class="status-item">
                                     <dt>
                                         Mastery points
@@ -90,6 +236,16 @@
                                                 person.total_mastery
                                             ).replace(",", " ")
                                         }}
+                                    </dd>
+                                </div>
+
+                                <div class="status-item">
+                                    <dt>
+                                        Riot accounts
+                                    </dt>
+
+                                    <dd>
+                                        {{ person.riot_account_count }}
                                     </dd>
                                 </div>
 
@@ -592,4 +748,12 @@
             {% endif %}
         </section>
     </div>
+{% endblock %}
+
+
+{% block scripts %}
+    <script
+        src="{{ url_for('static', filename='dashboard_person_order.js') }}"
+        defer
+    ></script>
 {% endblock %}

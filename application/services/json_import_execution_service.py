@@ -10,6 +10,7 @@ from application.database.database import db
 from application.database.models import (
     Champion,
     ChampionMastery,
+    ChampionMasteryHistory,
     Person,
     RiotAccount,
 )
@@ -551,9 +552,41 @@ class JsonImportExecutionService:
                                 "mastery_points"
                             ]
                         ),
+                        mastery_level=(
+                            mastery_action[
+                                "mastery_level"
+                            ]
+                        ),
                     )
 
                     created_mastery_count += 1
+
+                for history_action in account_action[
+                    "mastery_history"
+                ]:
+                    session.add(
+                        ChampionMasteryHistory(
+                            riot_account_id=account.id,
+                            champion_id=champion_by_riot_id[
+                                history_action[
+                                    "riot_champion_id"
+                                ]
+                            ].id,
+                            recorded_at=(
+                                cls._parse_utc_timestamp(
+                                    history_action[
+                                        "recorded_at"
+                                    ]
+                                )
+                            ),
+                            mastery_points=history_action[
+                                "mastery_points"
+                            ],
+                            mastery_level=history_action[
+                                "mastery_level"
+                            ],
+                        )
+                    )
 
         session.flush()
 
@@ -583,12 +616,14 @@ class JsonImportExecutionService:
         account,
         champion,
         mastery_points,
+        mastery_level,
     ):
         session.add(
             ChampionMastery(
                 riot_account_id=account.id,
                 champion_id=champion.id,
                 mastery_points=mastery_points,
+                mastery_level=mastery_level,
             )
         )
 
@@ -939,6 +974,70 @@ class JsonImportExecutionService:
                         "Mastery points",
                     )
 
+                    cls._require_optional_nonnegative_integer(
+                        mastery.get(
+                            "mastery_level"
+                        ),
+                        "Mastery level",
+                    )
+
+                history_records = account.get(
+                    "mastery_history"
+                )
+
+                if not isinstance(
+                    history_records,
+                    list,
+                ):
+                    raise JsonImportExecutionError(
+                        "The import plan mastery history must "
+                        "be a list."
+                    )
+
+                for history in history_records:
+                    riot_champion_id = (
+                        cls._require_positive_integer(
+                            history.get(
+                                "riot_champion_id"
+                            ),
+                            "Mastery history Riot champion ID",
+                        )
+                    )
+
+                    if (
+                        riot_champion_id
+                        not in champion_ids
+                    ):
+                        raise JsonImportExecutionError(
+                            "The import plan mastery history "
+                            "references a missing Riot champion "
+                            f"ID {riot_champion_id}."
+                        )
+
+                    if cls._parse_utc_timestamp(
+                        history.get(
+                            "recorded_at"
+                        )
+                    ) is None:
+                        raise JsonImportExecutionError(
+                            "Mastery history requires a "
+                            "timestamp."
+                        )
+
+                    cls._require_nonnegative_integer(
+                        history.get(
+                            "mastery_points"
+                        ),
+                        "Mastery history points",
+                    )
+
+                    cls._require_optional_nonnegative_integer(
+                        history.get(
+                            "mastery_level"
+                        ),
+                        "Mastery history level",
+                    )
+
     @staticmethod
     def _ensure_scoped_session_is_clean():
         if (
@@ -1044,6 +1143,20 @@ class JsonImportExecutionService:
             return None
 
         return cls._require_nonempty_string(
+            value,
+            label,
+        )
+
+    @classmethod
+    def _require_optional_nonnegative_integer(
+        cls,
+        value,
+        label,
+    ):
+        if value is None:
+            return None
+
+        return cls._require_nonnegative_integer(
             value,
             label,
         )

@@ -163,7 +163,108 @@ class DatabaseMigrationServiceTests(unittest.TestCase):
 
         return row is not None
 
-    def test_new_database_is_initialized_as_version_one(self):
+    def test_version_one_database_gains_mastery_level_column(self):
+        self._create_versioned_database(
+            version=1
+        )
+
+        connection = sqlite3.connect(
+            str(self.database_file)
+        )
+
+        try:
+            connection.execute(
+                """
+                CREATE TABLE champion_masteries (
+                    id INTEGER PRIMARY KEY,
+                    mastery_points INTEGER NOT NULL
+                )
+                """
+            )
+
+            connection.execute(
+                """
+                INSERT INTO champion_masteries (
+                    mastery_points
+                )
+                VALUES (
+                    12345
+                )
+                """
+            )
+
+            connection.commit()
+
+        finally:
+            connection.close()
+
+        result = (
+            DatabaseMigrationService
+            .initialize_or_migrate()
+        )
+
+        connection = sqlite3.connect(
+            str(self.database_file)
+        )
+
+        try:
+            columns = [
+                row[1]
+                for row in connection.execute(
+                    "PRAGMA table_info(champion_masteries)"
+                ).fetchall()
+            ]
+
+            row = connection.execute(
+                """
+                SELECT mastery_points, mastery_level
+                FROM champion_masteries
+                """
+            ).fetchone()
+
+        finally:
+            connection.close()
+
+        self.assertEqual(
+            result["migrated_versions"],
+            [2, 3],
+        )
+
+        self.assertIn(
+            "mastery_level",
+            columns,
+        )
+
+        self.assertEqual(
+            row,
+            (
+                12345,
+                None,
+            ),
+        )
+
+    def test_version_two_database_gains_history_table(self):
+        self._create_versioned_database(
+            version=2
+        )
+
+        result = (
+            DatabaseMigrationService
+            .initialize_or_migrate()
+        )
+
+        self.assertEqual(
+            result["migrated_versions"],
+            [3],
+        )
+
+        self.assertTrue(
+            self._table_exists(
+                "champion_mastery_history"
+            )
+        )
+
+    def test_new_database_is_initialized_as_current_version(self):
         result = (
             DatabaseMigrationService
             .initialize_or_migrate()
@@ -183,7 +284,7 @@ class DatabaseMigrationServiceTests(unittest.TestCase):
 
         self.assertEqual(
             result["schema_version"],
-            1,
+            3,
         )
 
         self.assertEqual(
@@ -195,7 +296,7 @@ class DatabaseMigrationServiceTests(unittest.TestCase):
             self._read_metadata_value(
                 "database_schema_version"
             ),
-            "1",
+            "3",
         )
 
     def test_existing_unversioned_database_is_baselined(self):
@@ -269,9 +370,14 @@ class DatabaseMigrationServiceTests(unittest.TestCase):
         )
 
         self.assertEqual(
+            result["migrated_versions"],
+            [2, 3],
+        )
+
+        self.assertEqual(
             DatabaseMigrationService
             .get_database_schema_version(),
-            1,
+            3,
         )
 
     def test_initialized_database_reuses_current_version(self):
@@ -299,7 +405,7 @@ class DatabaseMigrationServiceTests(unittest.TestCase):
 
         self.assertEqual(
             second_result["schema_version"],
-            1,
+            3,
         )
 
         self.assertEqual(
@@ -369,7 +475,7 @@ class DatabaseMigrationServiceTests(unittest.TestCase):
         self.assertEqual(
             DatabaseMigrationService
             .get_export_format_version(),
-            1,
+            2,
         )
 
     def test_empty_database_starts_at_current_schema_version(self):

@@ -85,6 +85,13 @@ class RiotAccount(db.Model):
         lazy=True
     )
 
+    mastery_history = db.relationship(
+        "ChampionMasteryHistory",
+        back_populates="riot_account",
+        cascade="all, delete-orphan",
+        lazy=True
+    )
+
     def __repr__(self):
         return f"<RiotAccount {self.game_name}#{self.tag_line}>"
 
@@ -175,6 +182,13 @@ class ChampionMastery(db.Model):
         default=0
     )
 
+    # Empty until the next sync for records imported or stored
+    # before levels were tracked.
+    mastery_level = db.Column(
+        db.Integer,
+        nullable=True
+    )
+
     riot_account = db.relationship(
         "RiotAccount",
         back_populates="mastery_data"
@@ -189,4 +203,72 @@ class ChampionMastery(db.Model):
         return (
             f"<ChampionMastery champion={self.champion_id} "
             f"points={self.mastery_points}>"
+        )
+
+
+class ChampionMasteryHistory(db.Model):
+    """
+    Mastery points and level for one Champion on one Riot Account
+    at one point in time.
+
+    A snapshot is stored only when a sync observes a change, so the
+    value at any moment is the latest snapshot at or before it.
+    """
+
+    __tablename__ = "champion_mastery_history"
+
+    __table_args__ = (
+        db.Index(
+            "ix_mastery_history_account_champion_time",
+            "riot_account_id",
+            "champion_id",
+            "recorded_at",
+        ),
+    )
+
+    id = db.Column(
+        db.Integer,
+        primary_key=True
+    )
+
+    riot_account_id = db.Column(
+        db.Integer,
+        db.ForeignKey("riot_accounts.id"),
+        nullable=False
+    )
+
+    champion_id = db.Column(
+        db.Integer,
+        db.ForeignKey("champions.id"),
+        nullable=False
+    )
+
+    recorded_at = db.Column(
+        db.DateTime,
+        nullable=False
+    )
+
+    mastery_points = db.Column(
+        db.Integer,
+        nullable=False
+    )
+
+    mastery_level = db.Column(
+        db.Integer,
+        nullable=True
+    )
+
+    riot_account = db.relationship(
+        "RiotAccount",
+        back_populates="mastery_history"
+    )
+
+    champion = db.relationship(
+        "Champion"
+    )
+
+    def __repr__(self):
+        return (
+            f"<ChampionMasteryHistory champion={self.champion_id} "
+            f"points={self.mastery_points} at={self.recorded_at}>"
         )
